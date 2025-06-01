@@ -3,14 +3,14 @@ import { z } from "zod";
 
 // Subesquemas reutilizables
 const horarioSchema = z.object({
-  day: z.string().min(1, "El día es obligatorio"),
-  open: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: "Hora de apertura inválida (formato HH:mm)",
-  }),
-  close: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: "Hora de cierre inválida (formato HH:mm)",
-  }),
-});
+  day: z.string(),
+  closed: z.boolean().optional(),
+  open: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+  close: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+}).refine(
+  (val) => val.closed || (val.open && val.close),
+  { message: "Día abierto requiere horas de apertura y cierre" }
+);
 
 const socialMediaSchema = z.object({
   facebook: z.string().url().optional(),
