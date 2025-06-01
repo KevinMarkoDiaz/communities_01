@@ -113,14 +113,8 @@ export const loginUser = async (req, res) => {
       const token = await createAccessToken(payload);
   
       // Enviar respuesta con token y datos públicos del usuario
-      res
-        .cookie("token", token, {
-          httpOnly: true,
-          secure: false,//process.env.NODE_ENV === "production", cambiar cuando deploye front
-          sameSite: "Lax",
-          maxAge: 3600000,
-        })
-        .status(200)
+      setAuthCookie(res, token);
+        res.status(200)
         .json({
           msg: "Inicio de sesión exitoso",
           token,
