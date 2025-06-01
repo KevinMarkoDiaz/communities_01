@@ -1,6 +1,7 @@
 import {Router} from 'express';
 import { registerUser , loginUser, logoutUser, getUserProfile} from '../controllers/auth.controller.js'; // Asegúrate de crear los controladores
 import { authMiddleware } from '../middlewares/validateToken.js';
+import { body } from 'express-validator';
 
 const router = Router();
 
