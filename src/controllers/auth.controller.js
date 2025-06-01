@@ -88,7 +88,7 @@ export const registerUser = async (req, res) => {
 
 export const loginUser = async (req, res) => {
     const { email, password } = req.body;
-  
+  console.log("BODY DEL LOGIN:", req.body);
     // Validar los datos
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
