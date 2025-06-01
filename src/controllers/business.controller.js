@@ -1,13 +1,12 @@
-import { validationResult } from 'express-validator';
+import { validationResult } from 'express-validator'; // Omitir si usás Zod
 import Business from '../models/business.model.js';
 import Community from '../models/community.model.js';
 
 /**
- * Crea un nuevo negocio dentro de una comunidad.
- * Solo los administradores o propietarios de negocios pueden crear negocios.
+ * Crear un nuevo negocio
  */
 export const createBusiness = async (req, res) => {
-  const errors = validationResult(req);
+  const errors = validationResult(req); // Omitir si usás Zod
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
@@ -21,12 +20,13 @@ export const createBusiness = async (req, res) => {
     contact,
     openingHours,
     images,
+    tags,
     isVerified,
   } = req.body;
 
   try {
     if (!['admin', 'business_owner'].includes(req.user.role)) {
-      return res.status(403).json({ msg: 'Acceso denegado. No tienes permisos para crear un negocio.' });
+      return res.status(403).json({ msg: 'No tienes permisos para crear un negocio.' });
     }
 
     const communityDoc = await Community.findById(community);
@@ -43,30 +43,38 @@ export const createBusiness = async (req, res) => {
       contact,
       openingHours,
       images,
-      isVerified,
+      tags,
+      isVerified: isVerified ?? false,
       owner: req.user.id,
     });
 
     await newBusiness.save();
 
+    const populatedBusiness = await Business.findById(newBusiness._id)
+      .populate("category")
+      .populate("community")
+      .populate("owner");
+
     res.status(201).json({
       msg: 'Negocio creado exitosamente.',
-      business: newBusiness,
+      business: populatedBusiness,
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ msg: 'Error en la creación del negocio.' });
+    res.status(500).json({ msg: 'Error al crear el negocio.' });
   }
 };
 
 /**
- * Obtiene todos los negocios.
+ * Obtener todos los negocios
  */
 export const getAllBusinesses = async (req, res) => {
   try {
-    const businesses = await Business.find(); // Buscar todos los negocios
+    const businesses = await Business.find()
+      .populate("category")
+      .populate("community")
+      .populate("owner");
 
-    // Responder con los negocios
     res.status(200).json({ businesses });
   } catch (error) {
     console.error(error);
@@ -75,18 +83,19 @@ export const getAllBusinesses = async (req, res) => {
 };
 
 /**
- * Obtiene un negocio específico por su ID.
+ * Obtener un negocio por ID
  */
 export const getBusinessById = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id); // Buscar negocio por ID
+    const business = await Business.findById(req.params.id)
+      .populate("category")
+      .populate("community")
+      .populate("owner");
 
-    // Verificar si el negocio existe
     if (!business) {
       return res.status(404).json({ msg: 'Negocio no encontrado.' });
     }
 
-    // Responder con los datos del negocio
     res.status(200).json({ business });
   } catch (error) {
     console.error(error);
@@ -95,42 +104,66 @@ export const getBusinessById = async (req, res) => {
 };
 
 /**
- * Actualiza un negocio específico.
- * Solo el propietario del negocio o un administrador puede actualizarlo.
+ * Actualizar un negocio
  */
 export const updateBusiness = async (req, res) => {
-  // Validar los datos de entrada
-  const errors = validationResult(req);
+  const errors = validationResult(req); // Omitir si usás Zod
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const { name, description } = req.body;
+  const {
+    name,
+    description,
+    category,
+    community,
+    location,
+    contact,
+    openingHours,
+    images,
+    tags,
+    isVerified,
+    owner, // ⚠️ No se debe actualizar
+  } = req.body;
 
   try {
-    const business = await Business.findById(req.params.id); // Buscar negocio por ID
-
-    // Verificar si el negocio existe
+    const business = await Business.findById(req.params.id);
     if (!business) {
       return res.status(404).json({ msg: 'Negocio no encontrado.' });
     }
 
-    // Verificar si el usuario tiene permisos para editar el negocio
-    if (business.owner.toString() !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ msg: 'No tienes permisos para editar este negocio.' });
+    const esPropietario = business.owner.toString() === req.user.id;
+    const esAdmin = req.user.role === 'admin';
+    if (!esPropietario && !esAdmin) {
+      return res.status(403).json({ msg: 'No tienes permisos para actualizar este negocio.' });
     }
 
-    // Actualizar los campos del negocio
-    business.name = name || business.name;
-    business.description = description || business.description;
+    if (owner && owner !== business.owner.toString()) {
+      return res.status(400).json({ msg: 'No puedes cambiar el propietario del negocio.' });
+    }
 
-    // Guardar los cambios
+    // Actualizar campos permitidos
+    if (name) business.name = name;
+    if (description) business.description = description;
+    if (category) business.category = category;
+    if (community) business.community = community;
+    if (location) business.location = location;
+    if (contact) business.contact = contact;
+    if (openingHours) business.openingHours = openingHours;
+    if (images) business.images = images;
+    if (tags) business.tags = tags;
+    if (typeof isVerified === 'boolean') business.isVerified = isVerified;
+
     await business.save();
 
-    // Responder con éxito
+    const populated = await Business.findById(business._id)
+      .populate("category")
+      .populate("community")
+      .populate("owner");
+
     res.status(200).json({
       msg: 'Negocio actualizado exitosamente.',
-      business,
+      business: populated,
     });
   } catch (error) {
     console.error(error);
@@ -139,30 +172,46 @@ export const updateBusiness = async (req, res) => {
 };
 
 /**
- * Elimina un negocio.
- * Solo el propietario del negocio o un administrador puede eliminarlo.
+ * Eliminar un negocio
  */
 export const deleteBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id); // Buscar negocio por ID
-
-    // Verificar si el negocio existe
+    const business = await Business.findById(req.params.id);
     if (!business) {
       return res.status(404).json({ msg: 'Negocio no encontrado.' });
     }
 
-    // Verificar si el usuario tiene permisos para eliminar el negocio
-    if (business.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    const esPropietario = business.owner.toString() === req.user.id;
+    const esAdmin = req.user.role === 'admin';
+    if (!esPropietario && !esAdmin) {
       return res.status(403).json({ msg: 'No tienes permisos para eliminar este negocio.' });
     }
 
-    // Eliminar el negocio
-    await business.deleteOne();  // Cambié remove() por deleteOne()
+    await business.deleteOne();
 
-    // Responder con éxito
     res.status(200).json({ msg: 'Negocio eliminado exitosamente.' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ msg: 'Error al eliminar el negocio.' });
+  }
+};
+/**
+ * Obtener todos los negocios creados por el usuario autenticado
+ */
+export const getMyBusinesses = async (req, res) => {
+  try {
+    if (!['admin', 'business_owner'].includes(req.user.role)) {
+      return res.status(403).json({ msg: 'No tienes permisos para ver tus negocios.' });
+    }
+
+    const businesses = await Business.find({ owner: req.user.id })
+      .populate("category")
+      .populate("community")
+      .populate("owner");
+
+    res.status(200).json({ businesses });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ msg: 'Error al obtener tus negocios.' });
   }
 };

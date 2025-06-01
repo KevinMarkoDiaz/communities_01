@@ -3,13 +3,18 @@ import mongoose from "mongoose";
 const communitySchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   flagImage: { type: String },
+  imagenDestacada: { type: String }, // 🆕 imagen grande para la home
   description: { type: String },
   language: { type: String, default: "es" },
+  tipo: { type: String, default: "migrante" }, // 🆕 puede ser "migrante", "cultural", etc.
   owner: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
     required: true
-  }
+  },
+  negocios: [{ type: mongoose.Schema.Types.ObjectId, ref: "Business" }],
+  eventos: [{ type: mongoose.Schema.Types.ObjectId, ref: "Event" }],
 });
 
-export default mongoose.model("Community", communitySchema);
+const Community = mongoose.model("Community", communitySchema);
+export default Community;

@@ -4,16 +4,27 @@ import {
   getAllBusinesses,
   getBusinessById,
   updateBusiness,
-  deleteBusiness
+  deleteBusiness,
+  getMyBusinesses
 } from '../controllers/business.controller.js';
 
 import { authMiddleware } from '../middlewares/validateToken.js';
 import { hasRole } from '../middlewares/hasRole.js';
+import { validateBody } from '../middlewares/validateBody.js';
+import { updateBusinessSchema } from '../schemas/business-update.schema.js';
+import { businessSchema } from '../schemas/business.schema.js';
+
 
 const router = Router();
 
 // Crear negocio (solo admin o business_owner)
-router.post('/businesses', authMiddleware, hasRole('admin', 'business_owner'), createBusiness);
+router.post(
+  '/businesses',
+  authMiddleware,
+  hasRole('admin', 'business_owner'),
+  validateBody(businessSchema),
+  createBusiness
+);
 
 // Obtener todos los negocios
 router.get('/businesses', getAllBusinesses);
@@ -22,9 +33,25 @@ router.get('/businesses', getAllBusinesses);
 router.get('/businesses/:id', getBusinessById);
 
 // Actualizar negocio (solo owner o admin)
-router.put('/businesses/:id', authMiddleware, hasRole('admin', 'business_owner'), updateBusiness);
+router.put(
+  '/businesses/:id',
+  authMiddleware,
+  hasRole('admin', 'business_owner'),
+  validateBody(updateBusinessSchema),
+  updateBusiness
+);
 
 // Eliminar negocio (solo owner o admin)
-router.delete('/businesses/:id', authMiddleware, hasRole('admin', 'business_owner'), deleteBusiness);
-
+router.delete(
+  '/businesses/:id',
+  authMiddleware,
+  hasRole('admin', 'business_owner'),
+  deleteBusiness
+);
+router.get(
+  '/businesses/mine',
+  authMiddleware,
+  hasRole('admin', 'business_owner'),
+  getMyBusinesses
+);
 export default router;

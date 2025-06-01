@@ -4,7 +4,7 @@ import { authMiddleware } from '../middlewares/validateToken.js';
 
 const router = Router();
 
-// Ruta para el registro de un nuevo usuario  loginUser, getUserProfile
+// Ruta para el registro de un nuevo usuario  loginUser,    getUserProfile
 router.post('/register', registerUser);
 
 // Ruta para iniciar sesión de un usuario (login)

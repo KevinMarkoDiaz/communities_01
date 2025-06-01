@@ -1,10 +1,14 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
 
-export const connectDB = async () => { 
-    try { 
-        await mongoose.connect("mongodb+srv://kevindi0695:4QQLHkcdD6n6m6jO@cluster0.fbzpdiu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-console.log('db is conected')
-    } catch(error){
-        console.log(error)
-    }
+dotenv.config(); // carga las variables del .env
+
+export const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log('🔗 Conexión a MongoDB Atlas exitosa');
+  } catch (error) {
+    console.error('❌ Error al conectar a MongoDB:', error.message);
+    process.exit(1);
+  }
 };

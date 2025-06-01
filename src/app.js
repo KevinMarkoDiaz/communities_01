@@ -6,17 +6,25 @@ import communityRoutes from "./routes/community.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import eventRoutes from "./routes/event.routes.js";
+import cors from "cors";
 
 import cookieParser from 'cookie-parser';
 
 const app = express();
 
 app.use(morgan('dev'));
+// Habilitar CORS
+app.use(cors({
+  origin: "http://localhost:5173", // ⚠️ Cambiá esto por tu dominio real en producción
+  credentials: true
+}));
 app.use(cookieParser());
 app.use(express.json());
 
-app.use("/api", authRoutes);
-app.use("/api", userRoutes);
+
+
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes); // Todas empiezan con /api/users
 app.use("/api", communityRoutes);
 app.use("/api", businessRoutes);
 app.use("/api", categoryRoutes);

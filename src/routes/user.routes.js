@@ -1,26 +1,35 @@
 import express from 'express';
-import { getAllUsers, getUserById, updateUser, deleteUser } from '../controllers/user.controller.js';
+import {
+  getAllUsers,
+  getUserById,
+  updateUser,
+  deleteUser
+} from '../controllers/user.controller.js';
+
+import { registerUser } from '../controllers/auth.controller.js';
 import { authMiddleware } from '../middlewares/validateToken.js';
 import { isAdmin } from '../middlewares/isAdmin.js';
-import { registerUser } from '../controllers/auth.controller.js';
 
 const router = express.Router();
 
-// Rutas para la gestión de usuarios (requiere autenticación)
+/**
+ * Rutas bajo /api/users
+ * Requieren autenticación, salvo que se especifique lo contrario
+ */
 
-// 1. Listar todos los usuarios (solo admin)
-router.get('/users', authMiddleware, isAdmin, getAllUsers);
+// 📌 Crear nuevo usuario (solo admin)
+router.post('/', authMiddleware, isAdmin, registerUser);
 
-// 2. Obtener un usuario por ID
-router.get('/users/:id', authMiddleware, getUserById);
+// 📥 Obtener todos los usuarios (solo admin)
+router.get('/', authMiddleware, isAdmin, getAllUsers);
 
-// 3. Actualizar datos de un usuario (solo el mismo usuario o admin)
-router.put('/users/:id', authMiddleware, updateUser);
+// 🔍 Obtener un usuario por ID
+router.get('/:id', authMiddleware, getUserById);
 
-// 4. Eliminar un usuario (solo admin)
-router.delete('/users/:id', authMiddleware, isAdmin, deleteUser);
+// ✏️ Actualizar datos de un usuario (solo el mismo o un admin)
+router.put('/:id', authMiddleware, updateUser);
 
-// 4. crear un usuario (solo admin)
-router.post('/users', authMiddleware, isAdmin, registerUser);
+// 🗑️ Eliminar un usuario (solo admin)
+router.delete('/:id', authMiddleware, isAdmin, deleteUser);
 
 export default router;

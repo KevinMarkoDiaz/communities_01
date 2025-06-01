@@ -19,10 +19,14 @@ export const categorySchema = z.object({
     .optional(),
 
   createdBy: z.string()
-    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de usuario creador inválido" })
-});
+    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de usuario creador inválido" }),
 
-// Uso en rutas:
-// import { validateBody } from '../middlewares/validator.middleware.js';
-// import { categorySchema } from '../schemas/category.schema.js';
-// router.post('/categories', authMiddleware, hasRole('admin','business_owner'), validateBody(categorySchema), createCategory);
+  createdByName: z.string()
+    .min(1, { message: "El nombre del creador es obligatorio" })
+    .max(100, { message: "El nombre del creador no puede exceder 100 caracteres" }),
+
+  createdByRole: z.enum(["admin", "business_owner", "user"], {
+    required_error: "El rol del creador es obligatorio",
+    invalid_type_error: "Rol inválido",
+  }),
+});

@@ -15,7 +15,14 @@ export const eventSchema = z.object({
     .max(2000, { message: "La descripción no puede exceder 2000 caracteres" }),
 
   date: z.string()
-    .refine(val => !isNaN(Date.parse(val)), { message: "La fecha debe ser una fecha ISO válida" }),
+    .refine(val => !isNaN(Date.parse(val)), {
+      message: "La fecha debe ser una fecha ISO válida"
+    }),
+
+  time: z.string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+      message: "La hora debe estar en formato HH:MM (24h)"
+    }),
 
   location: z.string()
     .min(1, { message: "La ubicación es obligatoria" })
@@ -23,15 +30,15 @@ export const eventSchema = z.object({
 
   communities: z.array(
     z.string().regex(/^[0-9a-fA-F]{24}$/, { message: "ID de comunidad inválido" })
-  ).optional(),
+  ).optional().default([]),
 
   businesses: z.array(
     z.string().regex(/^[0-9a-fA-F]{24}$/, { message: "ID de negocio inválido" })
-  ).optional(),
+  ).optional().default([]),
 
   categories: z.array(
     z.string().regex(/^[0-9a-fA-F]{24}$/, { message: "ID de categoría inválido" })
-  ).optional(),
+  ).optional().default([]),
 
   organizer: z.string()
     .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de organizador inválido" }),
@@ -44,7 +51,3 @@ export const eventSchema = z.object({
     .url({ message: "La URL de la imagen no es válida" })
     .optional()
 });
-
-// Uso en controladores:
-// import { validateBody } from '../middlewares/validator.middleware.js';
-// router.post('/events', validateBody(eventSchema), createEvent);

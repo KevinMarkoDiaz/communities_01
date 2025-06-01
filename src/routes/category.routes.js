@@ -12,19 +12,19 @@ import { hasRole } from "../middlewares/hasRole.js";
 
 const router = Router();
 
-// Crear una categoría nueva (solo admin o business_owner)
-router.post("/categories", authMiddleware, hasRole('admin', 'business_owner'), createCategory);
+// Crear una categoría nueva (solo admin)
+router.post("/categories", authMiddleware, hasRole('admin'), createCategory);
 
-// Obtener todas las categorías
+// Obtener todas las categorías (público)
 router.get("/categories", getAllCategories);
 
-// Obtener una categoría por ID
+// Obtener una categoría por ID (público)
 router.get("/categories/:id", getCategoryById);
 
-// Actualizar una categoría (solo creador o admin)
-router.put("/categories/:id", authMiddleware, hasRole('admin', 'business_owner'), updateCategory);
+// Actualizar una categoría (solo admin)
+router.put("/categories/:id", authMiddleware, hasRole('admin'), updateCategory);
 
-// Eliminar una categoría (solo creador o admin)
-router.delete("/categories/:id", authMiddleware, hasRole('admin', 'business_owner'), deleteCategory);
+// Eliminar una categoría (solo admin)
+router.delete("/categories/:id", authMiddleware, hasRole('admin'), deleteCategory);
 
 export default router;

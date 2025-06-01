@@ -1,7 +1,7 @@
-// 📁 src/schemas/business.schema.js
+// 📁 src/schemas/business-update.schema.js
 import { z } from "zod";
 
-// Subesquemas reutilizables
+// Subesquemas reutilizables (idénticos al de creación)
 const horarioSchema = z.object({
   day: z.string().min(1, "El día es obligatorio"),
   open: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
@@ -24,32 +24,36 @@ const socialMediaSchema = z.object({
 });
 
 const contactSchema = z.object({
-  phone: z.string().min(5).max(20),
-  email: z.string().email(),
+  phone: z.string().min(5).max(20).optional(),
+  email: z.string().email().optional(),
   website: z.string().url().optional(),
   socialMedia: socialMediaSchema.optional(),
 });
 
 const locationSchema = z.object({
-  address: z.string().max(200),
-  city: z.string().max(100),
-  state: z.string().max(100),
+  address: z.string().max(200).optional(),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
   zipCode: z.string().max(20).optional(),
-  country: z.string().min(2).max(100),
+  country: z.string().min(2).max(100).optional(),
   coordinates: z.object({
-    lat: z.number(),
-    lng: z.number(),
-  }),
+    lat: z.number().optional(),
+    lng: z.number().optional(),
+  }).optional(),
 });
 
-export const businessSchema = z.object({
-  name: z.string().min(1).max(100).trim(),
-  description: z.string().max(1000),
-  category: z.string().regex(/^[0-9a-fA-F]{24}$/, { message: "ID de categoría inválido" }),
-  community: z.string().regex(/^[0-9a-fA-F]{24}$/, { message: "ID de comunidad inválido" }),
-  location: locationSchema,
-  contact: contactSchema,
+export const updateBusinessSchema = z.object({
+  name: z.string().max(100).trim().optional(),
+  description: z.string().max(1000).optional(),
+  category: z.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
+  community: z.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
+  location: locationSchema.optional(),
+  contact: contactSchema.optional(),
   openingHours: z.array(horarioSchema).optional(),
   images: z.array(z.string().url()).optional(),
   tags: z.array(z.string()).optional(),
+  isVerified: z.boolean().optional(),
+
+  // ❌ Campos que no se deben actualizar desde frontend
+  owner: z.undefined(),
 });

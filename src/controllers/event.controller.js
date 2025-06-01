@@ -1,19 +1,11 @@
-import { validationResult } from "express-validator";
 import Event from "../models/event.model.js";
-import Community from "../models/community.model.js";
-import Business from "../models/business.model.js";
-import Category from "../models/category.model.js";
 
 export const createEvent = async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
   const {
     title,
     description,
     date,
+    time,
     location,
     communities = [],
     businesses = [],
@@ -26,6 +18,7 @@ export const createEvent = async (req, res) => {
       title,
       description,
       date,
+      time,
       location,
       communities,
       businesses,
@@ -50,7 +43,13 @@ export const getAllEvents = async (req, res) => {
       .populate("communities")
       .populate("businesses")
       .populate("categories")
-      .populate("organizer");
+      .populate({
+        path: "organizer",
+        model: function (doc) {
+          return doc.organizerModel;
+        }
+      });
+
     res.status(200).json({ events });
   } catch (error) {
     console.error(error);
@@ -64,8 +63,15 @@ export const getEventById = async (req, res) => {
       .populate("communities")
       .populate("businesses")
       .populate("categories")
-      .populate("organizer");
+      .populate({
+        path: "organizer",
+        model: function (doc) {
+          return doc.organizerModel;
+        }
+      });
+
     if (!event) return res.status(404).json({ msg: "Evento no encontrado" });
+
     res.status(200).json({ event });
   } catch (error) {
     console.error(error);
@@ -74,15 +80,11 @@ export const getEventById = async (req, res) => {
 };
 
 export const updateEvent = async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
   const {
     title,
     description,
     date,
+    time,
     location,
     image,
     communities,
@@ -98,14 +100,15 @@ export const updateEvent = async (req, res) => {
       return res.status(403).json({ msg: "No tienes permisos para editar este evento" });
     }
 
-    event.title = title || event.title;
-    event.description = description || event.description;
-    event.date = date || event.date;
-    event.location = location || event.location;
-    event.image = image || event.image;
-    event.communities = communities || event.communities;
-    event.businesses = businesses || event.businesses;
-    event.categories = categories || event.categories;
+    event.title = title ?? event.title;
+    event.description = description ?? event.description;
+    event.date = date ?? event.date;
+    event.time = time ?? event.time;
+    event.location = location ?? event.location;
+    event.image = image ?? event.image;
+    event.communities = communities ?? event.communities;
+    event.businesses = businesses ?? event.businesses;
+    event.categories = categories ?? event.categories;
 
     await event.save();
 

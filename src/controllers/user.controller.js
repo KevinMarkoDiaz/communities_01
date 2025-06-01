@@ -4,21 +4,29 @@ import { validationResult } from 'express-validator';
 // Obtener todos los usuarios (solo admin)
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password'); // Excluir la contraseña
+    const users = await User.find().select('-password');
     res.status(200).json(users);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ msg: 'Error del servidor   ' });
+    res.status(500).json({ msg: 'Error del servidor' });
   }
 };
 
-// Obtener un usuario por ID
+// Obtener un usuario por ID con populate completo
 export const getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id)
+      .select('-password')
+      .populate('community') // comunidad principal
+      .populate('communities') // si es admin
+      .populate('businesses')
+      .populate('events')
+      .populate('categories');
+
     if (!user) {
       return res.status(404).json({ msg: 'Usuario no encontrado' });
     }
+
     res.status(200).json(user);
   } catch (error) {
     console.error(error);
@@ -26,18 +34,15 @@ export const getUserById = async (req, res) => {
   }
 };
 
-// Actualizar un usuario por ID
+// Actualizar un usuario por ID (perfil)
 export const updateUser = async (req, res) => {
-  // Validar los datos de entrada
-  const errors = validationResult(req);
+  const errors = validationResult(req); // opcional si usás Zod
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
 
   const { id } = req.params;
-  const { name, profileImage } = req.body;
 
-  // Solo el propio usuario o un admin puede actualizar
   if (req.user.id !== id && req.user.role !== 'admin') {
     return res.status(403).json({ msg: 'No autorizado' });
   }
@@ -46,9 +51,27 @@ export const updateUser = async (req, res) => {
     const user = await User.findById(id);
     if (!user) return res.status(404).json({ msg: 'Usuario no encontrado' });
 
-    // Actualizar campos permitidos
-    user.name = name ?? user.name;
-    user.profileImage = profileImage ?? user.profileImage;
+    // Campos permitidos a actualizar
+    const {
+      name,
+      lastName,
+      title,
+      description,
+      profileImage,
+      location,
+      country,
+      community,
+    } = req.body;
+
+    if (name) user.name = name;
+    if (lastName) user.lastName = lastName;
+    if (title) user.title = title;
+    if (description) user.description = description;
+    if (profileImage) user.profileImage = profileImage;
+    if (location) user.location = location;
+    if (country) user.country = country;
+    if (community) user.community = community;
+
     user.updatedAt = Date.now();
 
     const updatedUser = await user.save();
@@ -58,10 +81,14 @@ export const updateUser = async (req, res) => {
       user: {
         id: updatedUser._id,
         name: updatedUser.name,
+        lastName: updatedUser.lastName,
         email: updatedUser.email,
+        title: updatedUser.title,
+        description: updatedUser.description,
+        location: updatedUser.location,
+        country: updatedUser.country,
         profileImage: updatedUser.profileImage,
         role: updatedUser.role,
-        isVerified: updatedUser.isVerified,
         community: updatedUser.community,
       },
     });
@@ -71,11 +98,10 @@ export const updateUser = async (req, res) => {
   }
 };
 
-// Eliminar un usuario por ID (solo admin)
+// Eliminar un usuario (solo admin)
 export const deleteUser = async (req, res) => {
   const { id } = req.params;
 
-  // Solo admin puede eliminar usuarios
   if (req.user.role !== 'admin') {
     return res.status(403).json({ msg: 'No autorizado' });
   }

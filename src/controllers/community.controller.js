@@ -65,24 +65,35 @@ export const getAllCommunities = async (req, res) => {
 };
 
 /**
- * Obtiene una comunidad específica por su ID.
+ * Obtiene una comunidad específica por su ID, incluyendo negocios, eventos y datos del owner.
  */
 export const getCommunityById = async (req, res) => {
   try {
-    const community = await Community.findById(req.params.id); // Buscar comunidad por ID
+    const community = await Community.findById(req.params.id)
+      .populate({
+        path: "owner",
+        select: "name email role profileImage",
+      })
+      .populate({
+        path: "negocios",
+        select: "name category location images",
+      })
+      .populate({
+        path: "eventos",
+        select: "title startDate endDate imagenDestacada",
+      });
 
-    // Verificar si la comunidad existe
     if (!community) {
-      return res.status(404).json({ msg: 'Comunidad no encontrada.' });
+      return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    // Responder con los datos de la comunidad
     res.status(200).json({ community });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ msg: 'Error al obtener la comunidad.' });
+    res.status(500).json({ msg: "Error al obtener la comunidad." });
   }
 };
+
 
 /**
  * Actualiza una comunidad específica.

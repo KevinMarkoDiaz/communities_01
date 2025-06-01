@@ -8,24 +8,42 @@ import {
 } from "../controllers/event.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
-
 import { hasRole } from "../middlewares/hasRole.js";
+import { validateBody } from "../middlewares/validator.middleware.js";
+import { eventSchema } from "../schemas/event.schema.js";
 
 const router = Router();
 
-// Crear evento (admin o business_owner  )
-router.post("/events", authMiddleware, hasRole("admin", "business_owner"), createEvent);
+// Crear evento (solo admin o business_owner)
+router.post(
+  "/events",
+  authMiddleware,
+  hasRole("admin", "business_owner"),
+  validateBody(eventSchema),
+  createEvent
+);
 
-// Obtener todos los eventos
+// Obtener todos los eventos (público)
 router.get("/events", getAllEvents);
 
-// Obtener evento por ID
+// Obtener evento por ID (público)
 router.get("/events/:id", getEventById);
 
-// Actualizar evento (admin o creador)
-router.put("/events/:id", authMiddleware, hasRole("admin", "business_owner"), updateEvent);
+// Actualizar evento (solo admin o creador del evento)
+router.put(
+  "/events/:id",
+  authMiddleware,
+  hasRole("admin", "business_owner"),
+  validateBody(eventSchema.partial()), // permite actualizar campos opcionales
+  updateEvent
+);
 
-// Eliminar evento (admin o creador)
-router.delete("/events/:id", authMiddleware, hasRole("admin", "business_owner"), deleteEvent);
+// Eliminar evento (solo admin o creador del evento)
+router.delete(
+  "/events/:id",
+  authMiddleware,
+  hasRole("admin", "business_owner"),
+  deleteEvent
+);
 
 export default router;
