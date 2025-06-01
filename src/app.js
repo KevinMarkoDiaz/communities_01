@@ -13,12 +13,12 @@ import cookieParser from 'cookie-parser';
 const app = express();
 
 app.use(morgan('dev'));
+app.use(cookieParser());
 // Habilitar CORS
 app.use(cors({
   origin: "http://localhost:5173", // ⚠️ Cambiá esto por tu dominio real en producción
   credentials: true
 }));
-app.use(cookieParser());
 app.use(express.json());
 
 
