@@ -23,5 +23,7 @@ router.post('/logout', logoutUser);
 
 // Ruta para obtener el perfil de un usuario (requiere autenticación)
 router.get('/profile', authMiddleware ,  getUserProfile);
-
+router.get("/debug/me", authMiddleware, (req, res) => {
+  res.json({ user: req.user });
+});
 export default router;

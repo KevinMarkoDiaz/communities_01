@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import User from '../models/user.model.js';
 import { validationResult } from 'express-validator';
 import { createAccessToken } from '../libs/jwt.js';
+import { setAuthCookie } from '../utils/setAuthCookie.js';
 
 export const registerUser = async (req, res) => {
   const { name, email, password, role, community, profileImage } = req.body;
@@ -58,14 +59,8 @@ export const registerUser = async (req, res) => {
     const token = await createAccessToken(payload);
 
     // Enviar token en cookie segura y respuesta JSON
-    res
-      .cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "Lax",
-        maxAge: 3600000, // 1 hora
-      })
-      .status(201)
+    setAuthCookie(res, token);
+      res.status(201)
       .json({
         msg: "Usuario creado",
         token,
