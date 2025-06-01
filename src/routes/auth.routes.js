@@ -8,7 +8,14 @@ const router = Router();
 router.post('/register', registerUser);
 
 // Ruta para iniciar sesión de un usuario (login)
-router.post('/login', loginUser);
+router.post(
+  '/login',
+  [
+    body("email").isEmail().withMessage("Correo inválido"),
+    body("password").notEmpty().withMessage("La contraseña es obligatoria"),
+  ],
+  loginUser
+);
 
 // Ruta para iniciar sesión de un usuario (login)
 router.post('/logout', logoutUser);
