@@ -1,5 +1,6 @@
 import { validationResult } from 'express-validator';
 import Category from '../models/category.model.js';
+import userModel from '../models/user.model.js';
 
 /**
  * Crear una nueva categoría.
@@ -21,14 +22,16 @@ export const createCategory = async (req, res) => {
       return res.status(400).json({ msg: 'Ya existe una categoría con ese nombre.' });
     }
 
-    const category = new Category({
-      name,
-      icon,
-      description,
-      createdBy: req.user.id,
-      createdByName: req.user.name,
-      createdByRole: req.user.role,
-    });
+    const user = await userModel.findById(req.user.id);
+
+const category = new Category({
+  name,
+  icon,
+  description,
+  createdBy: user._id,
+  createdByName: user.name,
+  createdByRole: user.role,
+});
 
     await category.save();
 
