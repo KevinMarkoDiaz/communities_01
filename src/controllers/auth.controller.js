@@ -6,36 +6,48 @@ import { createAccessToken } from '../libs/jwt.js';
 export const registerUser = async (req, res) => {
   const { name, email, password, role, community, profileImage } = req.body;
 
+  // Validación express-validator (asumo que la usás)
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
 
   try {
+    // Verificar si ya existe el correo
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ msg: 'El correo electrónico ya está registrado' });
-      }
-      
-    if (role === "admin") {
-        return res.status(403).json({ msg: "No tienes permisos para asignar el rol de admin." });
-      }
+    }
 
+    // No permitir rol admin desde el registro público
+    if (role === "admin") {
+      return res.status(403).json({ msg: "No tienes permisos para asignar el rol de admin." });
+    }
+
+    // Generar hash de la contraseña
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({
+    // Preparar datos para nuevo usuario
+    const userData = {
       name,
       email,
       password: hashedPassword,
       role,
-      community,
       profileImage,
       isVerified: false,
-    });
+    };
 
+    // Asignar community solo si tiene un valor válido no vacío
+    if (community && community.trim() !== "") {
+      userData.community = community;
+    }
+
+    // Crear nuevo usuario
+    const newUser = new User(userData);
     await newUser.save();
 
+    // Payload para token JWT
     const payload = {
       user: {
         id: newUser._id,
@@ -45,33 +57,34 @@ export const registerUser = async (req, res) => {
 
     const token = await createAccessToken(payload);
 
-    // Establecer cookie y responder con éxito
+    // Enviar token en cookie segura y respuesta JSON
     res
-  .cookie("token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "Lax",
-    maxAge: 3600000, // 1 hora
-  })
-  .status(201)
-  .json({
-    msg: "Usuario creado",
-    token,
-    user: {
-      id: newUser._id,
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      profileImage: newUser.profileImage,
-      isVerified: newUser.isVerified,
-      community: newUser.community,
-    },
-  });
+      .cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "Lax",
+        maxAge: 3600000, // 1 hora
+      })
+      .status(201)
+      .json({
+        msg: "Usuario creado",
+        token,
+        user: {
+          id: newUser._id,
+          name: newUser.name,
+          email: newUser.email,
+          role: newUser.role,
+          profileImage: newUser.profileImage,
+          isVerified: newUser.isVerified,
+          community: newUser.community,
+        },
+      });
   } catch (error) {
     console.error(error);
     res.status(500).send('Error del servidor');
   }
 };
+
 
 export const loginUser = async (req, res) => {
     const { email, password } = req.body;
