@@ -136,15 +136,18 @@ export const deleteEvent = async (req, res) => {
   }
 };
 export const getMyEventsController = async (req, res) => {
-  try {
+   try {
     const events = await Event.find({
       organizer: req.user.id,
-      organizerModel: "User", // o "Business", si aplica
-    }).populate("communities businesses categories");
+      organizerModel: "User", // si querés que también aplique a negocios, hacé dinámico
+    })
+      .populate("communities", "name")
+      .populate("categories", "name")
+      .populate("businesses", "name");
 
     res.status(200).json({ events });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ msg: "Error al obtener tus eventos." });
+    res.status(500).json({ msg: "Error al obtener tus eventos" });
   }
 };
