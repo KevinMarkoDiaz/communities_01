@@ -27,15 +27,15 @@ router.post(
 // Obtener todos los eventos (público)
 router.get("/events", getAllEvents);
 
-// Obtener evento por ID (público)
-router.get("/events/:id", getEventById);
-
 router.get(
   "/events/mine",
   authMiddleware,
   hasRole("admin", "business_owner"),
   getMyEventsController
 );
+
+// Obtener evento por ID (público)
+router.get("/events/:id", getEventById);
 
 // Actualizar evento (solo admin o creador del evento)
 router.put(
