@@ -45,5 +45,10 @@ router.delete(
   hasRole("admin", "business_owner"),
   deleteEvent
 );
-
+router.get(
+  "/events/mine",
+  authMiddleware,
+  hasRole("admin", "business_owner"),
+  getMyEventsController
+);
 export default router;
