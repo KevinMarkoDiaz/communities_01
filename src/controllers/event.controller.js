@@ -1,4 +1,6 @@
 import Event from "../models/event.model.js";
+import User from "../models/user.model.js";
+import Business from "../models/business.model.js";
 
 export const createEvent = async (req, res) => {
   const {
