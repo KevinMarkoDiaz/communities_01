@@ -6,6 +6,7 @@ import {
   updateEvent,
   deleteEvent
 } from "../controllers/event.controller.js";
+import { getMyEventsController } from "../controllers/event.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
@@ -45,10 +46,12 @@ router.delete(
   hasRole("admin", "business_owner"),
   deleteEvent
 );
+
 router.get(
   "/events/mine",
   authMiddleware,
   hasRole("admin", "business_owner"),
   getMyEventsController
 );
+
 export default router;
