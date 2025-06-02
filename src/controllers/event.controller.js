@@ -43,12 +43,7 @@ export const getAllEvents = async (req, res) => {
       .populate("communities")
       .populate("businesses")
       .populate("categories")
-      .populate({
-        path: "organizer",
-        model: function (doc) {
-          return doc.organizerModel;
-        }
-      });
+      .populate("organizer")
 
     res.status(200).json({ events });
   } catch (error) {
@@ -63,12 +58,7 @@ export const getEventById = async (req, res) => {
       .populate("communities")
       .populate("businesses")
       .populate("categories")
-      .populate({
-        path: "organizer",
-        model: function (doc) {
-          return doc.organizerModel;
-        }
-      });
+      .populate("organizer")
 
     if (!event) return res.status(404).json({ msg: "Evento no encontrado" });
 
