@@ -30,6 +30,13 @@ router.get("/events", getAllEvents);
 // Obtener evento por ID (público)
 router.get("/events/:id", getEventById);
 
+router.get(
+  "/events/mine",
+  authMiddleware,
+  hasRole("admin", "business_owner"),
+  getMyEventsController
+);
+
 // Actualizar evento (solo admin o creador del evento)
 router.put(
   "/events/:id",
@@ -47,11 +54,6 @@ router.delete(
   deleteEvent
 );
 
-router.get(
-  "/events/mine",
-  authMiddleware,
-  hasRole("admin", "business_owner"),
-  getMyEventsController
-);
+
 
 export default router;
