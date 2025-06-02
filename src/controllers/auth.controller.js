@@ -178,3 +178,14 @@ export const getUserProfile = async (req, res) => {
       res.status(500).json({ msg: "Error al obtener el perfil del usuario" });
     }
 };
+
+export const getCurrentUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) return res.status(404).json({ msg: "Usuario no encontrado" });
+    res.json({ usuario: user });
+  } catch (err) {
+    console.error("Error al obtener perfil (/me):", err);
+    res.status(500).json({ msg: "Error al obtener perfil" });
+  }
+};

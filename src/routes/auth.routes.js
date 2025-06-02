@@ -1,5 +1,5 @@
 import {Router} from 'express';
-import { registerUser , loginUser, logoutUser, getUserProfile} from '../controllers/auth.controller.js'; // Asegúrate de crear los controladores
+import { registerUser , loginUser, logoutUser, getUserProfile, getCurrentUser} from '../controllers/auth.controller.js'; // Asegúrate de crear los controladores
 import { authMiddleware } from '../middlewares/validateToken.js';
 import { body } from 'express-validator';
 
@@ -23,7 +23,6 @@ router.post('/logout', logoutUser);
 
 // Ruta para obtener el perfil de un usuario (requiere autenticación)
 router.get('/profile', authMiddleware ,  getUserProfile);
-router.get("/debug/me", authMiddleware, (req, res) => {
-  res.json({ user: req.user });
-});
+
+router.get("/me", authMiddleware, getCurrentUser);
 export default router;
