@@ -171,3 +171,20 @@ export const deleteCommunity = async (req, res) => {
       res.status(500).json({ msg: 'Error al    sseliminar la comunidad.' });
     }
   };
+
+  import Community from "../models/community.model.js";
+
+export const getMyCommunities = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const role = req.user.role;
+
+    const query = role === "admin" ? {} : { owner: userId };
+
+    const communities = await Community.find(query);
+    res.status(200).json({ communities });
+  } catch (error) {
+    console.error("Error al obtener comunidades del usuario:", error);
+    res.status(500).json({ message: "Error al obtener comunidades" });
+  }
+};

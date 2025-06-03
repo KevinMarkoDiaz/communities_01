@@ -5,6 +5,7 @@ import {
   getCommunityById,
   updateCommunity,
   deleteCommunity,
+  getMyCommunities,
 } from "../controllers/community.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
@@ -22,6 +23,15 @@ router.post(
 
 // Obtener todas las comunidades (público)
 router.get("/communities", getAllCommunities);
+
+
+router.get(
+  "/communities/mine",
+  authMiddleware,
+  hasRole("admin", "business_owner"),
+  getMyCommunities
+);
+
 
 // Obtener comunidad por ID (público)
 router.get("/communities/:id", getCommunityById);
