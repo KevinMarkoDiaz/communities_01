@@ -172,7 +172,6 @@ export const deleteCommunity = async (req, res) => {
     }
   };
 
-  import Community from "../models/community.model.js";
 
 export const getMyCommunities = async (req, res) => {
   try {
