@@ -4,13 +4,30 @@ import { z } from "zod";
 // Subesquemas reutilizables (idénticos al de creación)
 const horarioSchema = z.object({
   day: z.string().min(1, "El día es obligatorio"),
-  open: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: "Hora de apertura inválida (formato HH:mm)",
-  }),
-  close: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: "Hora de cierre inválida (formato HH:mm)",
-  }),
-});
+  closed: z.boolean().optional().default(false),
+  open: z.string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+      message: "Hora de apertura inválida (formato HH:mm)",
+    })
+    .optional()
+    .nullable(),
+  close: z.string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+      message: "Hora de cierre inválida (formato HH:mm)",
+    })
+    .optional()
+    .nullable(),
+}).refine(
+  (data) => {
+    if (data.closed) return true;
+    return data.open && data.close;
+  },
+  {
+    message: "Debes proporcionar hora de apertura y cierre si el negocio está abierto.",
+    path: ["open"], // Puedes usar ["open", "close"] si querés mostrar error en ambos
+  }
+);
+
 
 const socialMediaSchema = z.object({
   facebook: z.string().url().optional(),
