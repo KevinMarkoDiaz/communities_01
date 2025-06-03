@@ -2,9 +2,23 @@ import mongoose from "mongoose";
 
 const horarioSchema = new mongoose.Schema({
   day: { type: String, required: true },
-  open: { type: String, required: true },
-  close: { type: String, required: true },
+  closed: { type: Boolean, default: false },
+  open: {
+    type: String,
+    required: function () {
+      return !this.closed;
+    },
+    match: /^\d{2}:\d{2}$/, // Validar formato HH:mm si lo querés
+  },
+  close: {
+    type: String,
+    required: function () {
+      return !this.closed;
+    },
+    match: /^\d{2}:\d{2}$/,
+  },
 });
+
 
 const socialMediaSchema = new mongoose.Schema({
   facebook: String,
