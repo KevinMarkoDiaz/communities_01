@@ -1,4 +1,3 @@
-// 📁 src/schemas/business-update.schema.js
 import { z } from "zod";
 
 // Subesquema de horarios corregido
@@ -34,7 +33,6 @@ const horarioSchema = z.object({
   }
 );
 
-// Subesquemas restantes
 const socialMediaSchema = z.object({
   facebook: z.string().url().optional(),
   instagram: z
@@ -67,7 +65,6 @@ const locationSchema = z.object({
     .optional(),
 });
 
-// Esquema principal
 export const updateBusinessSchema = z.object({
   name: z.string().max(100).trim().optional(),
   description: z.string().max(1000).optional(),
@@ -76,8 +73,13 @@ export const updateBusinessSchema = z.object({
   location: locationSchema.optional(),
   contact: contactSchema.optional(),
   openingHours: z.array(horarioSchema).optional(),
+  
+  // ✅ Nuevos campos de imagen (opcionales)
+  featuredImage: z.string().url().optional(),
+  profileImage: z.string().url().optional(),
   images: z.array(z.string().url()).optional(),
+
   tags: z.array(z.string()).optional(),
   isVerified: z.boolean().optional(),
-  owner: z.undefined(), // No actualizable desde frontend
+  owner: z.undefined(), // ⚠️ No actualizable desde frontend
 });

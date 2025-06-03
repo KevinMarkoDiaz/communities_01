@@ -4,22 +4,31 @@ import {
   getAllEvents,
   getEventById,
   updateEvent,
-  deleteEvent
+  deleteEvent,
+  getMyEventsController,
 } from "../controllers/event.controller.js";
-import { getMyEventsController } from "../controllers/event.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
 import { validateBody } from "../middlewares/validator.middleware.js";
 import { eventSchema } from "../schemas/event.schema.js";
 
+import { upload } from "../config/cloudinary.js";
+
 const router = Router();
 
-// Crear evento (solo admin o business_owner)
+// Crear evento con imagen (solo admin o business_owner)
 router.post(
   "/events",
   authMiddleware,
   hasRole("admin", "business_owner"),
+  upload.single("image"),
+  (req, res, next) => {
+    if (req.file) {
+      req.body.image = req.file.path;
+    }
+    next();
+  },
   validateBody(eventSchema),
   createEvent
 );
@@ -27,6 +36,7 @@ router.post(
 // Obtener todos los eventos (público)
 router.get("/events", getAllEvents);
 
+// Obtener eventos del usuario autenticado
 router.get(
   "/events/mine",
   authMiddleware,
@@ -37,23 +47,28 @@ router.get(
 // Obtener evento por ID (público)
 router.get("/events/:id", getEventById);
 
-// Actualizar evento (solo admin o creador del evento)
+// Actualizar evento con imagen
 router.put(
   "/events/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
+  upload.single("image"),
+  (req, res, next) => {
+    if (req.file) {
+      req.body.image = req.file.path;
+    }
+    next();
+  },
   validateBody(eventSchema.partial()), // permite actualizar campos opcionales
   updateEvent
 );
 
-// Eliminar evento (solo admin o creador del evento)
+// Eliminar evento
 router.delete(
   "/events/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
   deleteEvent
 );
-
-
 
 export default router;

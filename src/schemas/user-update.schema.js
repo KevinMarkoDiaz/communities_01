@@ -9,11 +9,6 @@ export const userUpdateSchema = z.object({
     .max(100, { message: "El apellido no puede exceder 100 caracteres" })
     .optional(),
 
-  email: z.string()
-    .email({ message: "El correo electrónico debe ser válido" })
-    .max(255, { message: "El correo no puede exceder 255 caracteres" })
-    .optional(),
-
   title: z.string()
     .max(100, { message: "El título no puede exceder 100 caracteres" })
     .optional(),
@@ -38,11 +33,8 @@ export const userUpdateSchema = z.object({
     .url({ message: "La URL de la imagen de perfil no es válida" })
     .optional(),
 
-  isVerified: z.boolean().optional(),
-
-  updatedAt: z.string()
-    .refine((val) => !val || !isNaN(Date.parse(val)), {
-      message: "updatedAt debe ser una fecha ISO válida",
-    })
-    .optional(),
+  // ❌ Campos que no deberían modificarse desde frontend
+  email: z.undefined(),
+  isVerified: z.undefined(),
+  updatedAt: z.undefined(),
 });

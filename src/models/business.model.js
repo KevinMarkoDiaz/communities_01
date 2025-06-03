@@ -31,7 +31,6 @@ const horarioSchema = new mongoose.Schema({
   },
 });
 
-
 const socialMediaSchema = new mongoose.Schema({
   facebook: String,
   instagram: String,
@@ -86,7 +85,12 @@ const businessSchema = new mongoose.Schema(
     },
 
     openingHours: [horarioSchema],
-    images: [{ type: String }],
+
+    // 🔽 NUEVOS CAMPOS DE IMÁGENES
+    featuredImage: { type: String },         // Imagen de banner
+    profileImage: { type: String },          // Imagen de perfil o logo
+    images: [{ type: String }],              // Galería opcional
+
     tags: [String],
     isVerified: { type: Boolean, default: false },
   },

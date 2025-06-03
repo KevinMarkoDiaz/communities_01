@@ -19,7 +19,6 @@ export const createBusiness = async (req, res) => {
     location,
     contact,
     openingHours,
-    images,
     tags,
     isVerified,
   } = req.body;
@@ -42,10 +41,14 @@ export const createBusiness = async (req, res) => {
       location,
       contact,
       openingHours,
-      images,
       tags,
       isVerified: isVerified ?? false,
       owner: req.user.id,
+
+      // 👇 Manejo de imágenes desde req.body (rellenado en el middleware)
+      featuredImage: req.body.featuredImage || "",
+      profileImage: req.body.profileImage || "",
+      images: req.body.images || [],
     });
 
     await newBusiness.save();
@@ -106,6 +109,7 @@ export const getBusinessById = async (req, res) => {
 /**
  * Actualizar un negocio
  */
+
 export const updateBusiness = async (req, res) => {
   const errors = validationResult(req); // Omitir si usás Zod
   if (!errors.isEmpty()) {
@@ -123,6 +127,8 @@ export const updateBusiness = async (req, res) => {
     images,
     tags,
     isVerified,
+    featuredImage,
+    profileImage,
     owner, // ⚠️ No se debe actualizar
   } = req.body;
 
@@ -150,9 +156,13 @@ export const updateBusiness = async (req, res) => {
     if (location) business.location = location;
     if (contact) business.contact = contact;
     if (openingHours) business.openingHours = openingHours;
-    if (images) business.images = images;
     if (tags) business.tags = tags;
     if (typeof isVerified === 'boolean') business.isVerified = isVerified;
+
+    // ✅ Nuevos campos de imagen
+    if (featuredImage) business.featuredImage = featuredImage;
+    if (profileImage) business.profileImage = profileImage;
+    if (images) business.images = images;
 
     await business.save();
 
@@ -174,6 +184,7 @@ export const updateBusiness = async (req, res) => {
 /**
  * Eliminar un negocio
  */
+
 export const deleteBusiness = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id);
@@ -195,9 +206,11 @@ export const deleteBusiness = async (req, res) => {
     res.status(500).json({ msg: 'Error al eliminar el negocio.' });
   }
 };
+
 /**
  * Obtener todos los negocios creados por el usuario autenticado
  */
+
 export const getMyBusinesses = async (req, res) => {
   try {
     if (!['admin', 'business_owner'].includes(req.user.role)) {

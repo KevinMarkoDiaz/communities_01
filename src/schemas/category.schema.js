@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 /**
- * Esquema de validación para Categorías usando Zod.
- * Valida los campos según el modelo Mongoose de Category.
+ * Esquema de validación para la creación de una categoría.
  */
 export const categorySchema = z.object({
   name: z.string()
@@ -11,6 +10,7 @@ export const categorySchema = z.object({
     .trim(),
 
   icon: z.string()
+    .url({ message: "El icono debe ser una URL válida" })
     .max(255, { message: "El icono no puede exceder 255 caracteres" })
     .optional(),
 

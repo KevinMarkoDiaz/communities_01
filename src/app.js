@@ -6,6 +6,7 @@ import communityRoutes from "./routes/community.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import eventRoutes from "./routes/event.routes.js";
+import uploadRoutes from './routes/upload.routes.js';
 import cors from "cors";
 
 import cookieParser from 'cookie-parser';
@@ -29,5 +30,5 @@ app.use("/api", communityRoutes);
 app.use("/api", businessRoutes);
 app.use("/api", categoryRoutes);
 app.use("/api", eventRoutes);
-
+app.use('/api', uploadRoutes);
 export default app;

@@ -1,15 +1,17 @@
 import { z } from "zod";
 
-// 🎯 Esquema básico para creación de comunidades (POST)
-export const communitySchema = z.object({
+// 🔵 Campos comunes que pueden ser compartidos entre POST y PUT
+const baseFields = {
   name: z.string()
     .min(1, { message: "El nombre de la comunidad es obligatorio" })
     .max(100, { message: "El nombre no puede exceder 100 caracteres" })
     .trim(),
 
   flagImage: z.string()
-    .url({ message: "La URL de la imagen de la bandera no es válida" })
-    .optional(),
+    .url({ message: "La URL de la imagen de la bandera no es válida" }),
+
+  bannerImage: z.string()
+    .url({ message: "La URL de la imagen de portada no es válida" }),
 
   description: z.string()
     .max(1000, { message: "La descripción no puede exceder 1000 caracteres" })
@@ -21,10 +23,22 @@ export const communitySchema = z.object({
 
   owner: z.string()
     .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de usuario propietario inválido" }),
+};
+
+// 🟢 Validación para crear comunidad (POST)
+export const communitySchema = z.object(baseFields);
+
+// 🟡 Validación para actualizar comunidad (PUT): todo opcional
+export const communityUpdateSchema = z.object({
+  name: baseFields.name.optional(),
+  flagImage: baseFields.flagImage.optional(),
+  bannerImage: baseFields.bannerImage.optional(),
+  description: baseFields.description,
+  language: baseFields.language.optional(),
+  owner: baseFields.owner.optional(),
 });
 
-
-// 🎯 Esquema extendido para respuesta de comunidad completa (GET / PUT)
+// 🟣 Validación para comunidad completa en respuesta (GET o PUT)
 export const fullCommunitySchema = communitySchema.extend({
   _id: z.string(),
 
@@ -32,7 +46,7 @@ export const fullCommunitySchema = communitySchema.extend({
     z.object({
       _id: z.string(),
       name: z.string(),
-      category: z.any(), // puede ser un ID (string) o un objeto populado
+      category: z.any(),
       location: z.object({
         city: z.string(),
         state: z.string(),

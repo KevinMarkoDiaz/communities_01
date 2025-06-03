@@ -13,6 +13,7 @@ import { hasRole } from '../middlewares/hasRole.js';
 import { validateBody } from '../middlewares/validateBody.js';
 import { updateBusinessSchema } from '../schemas/business-update.schema.js';
 import { businessSchema } from '../schemas/business.schema.js';
+import { imageProcessor, uploaderMiddleware } from '../middlewares/imageUpload.middleware.js';
 
 
 const router = Router();
@@ -22,6 +23,8 @@ router.post(
   '/businesses',
   authMiddleware,
   hasRole('admin', 'business_owner'),
+  uploaderMiddleware,
+  imageProcessor,
   validateBody(businessSchema),
   createBusiness
 );
@@ -43,6 +46,8 @@ router.put(
   '/businesses/:id',
   authMiddleware,
   hasRole('admin', 'business_owner'),
+  uploaderMiddleware,
+  imageProcessor,
   validateBody(updateBusinessSchema),
   updateBusiness
 );
