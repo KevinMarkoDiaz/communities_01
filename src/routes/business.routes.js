@@ -29,6 +29,12 @@ router.post(
 // Obtener todos los negocios
 router.get('/businesses', getAllBusinesses);
 
+router.get(
+  '/businesses/mine',
+  authMiddleware,
+  hasRole('admin', 'business_owner'),
+  getMyBusinesses
+);
 // Obtener negocio por ID
 router.get('/businesses/:id', getBusinessById);
 
@@ -48,10 +54,5 @@ router.delete(
   hasRole('admin', 'business_owner'),
   deleteBusiness
 );
-router.get(
-  '/businesses/mine',
-  authMiddleware,
-  hasRole('admin', 'business_owner'),
-  getMyBusinesses
-);
+
 export default router;
