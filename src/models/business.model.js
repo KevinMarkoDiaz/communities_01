@@ -8,14 +8,26 @@ const horarioSchema = new mongoose.Schema({
     required: function () {
       return !this.closed;
     },
-    match: /^\d{2}:\d{2}$/, // Validar formato HH:mm si lo querés
+    validate: {
+      validator: function (value) {
+        if (this.closed) return true;
+        return typeof value === "string" && /^\d{2}:\d{2}$/.test(value);
+      },
+      message: "Formato inválido para la hora de apertura (HH:mm)",
+    },
   },
   close: {
     type: String,
     required: function () {
       return !this.closed;
     },
-    match: /^\d{2}:\d{2}$/,
+    validate: {
+      validator: function (value) {
+        if (this.closed) return true;
+        return typeof value === "string" && /^\d{2}:\d{2}$/.test(value);
+      },
+      message: "Formato inválido para la hora de cierre (HH:mm)",
+    },
   },
 });
 
