@@ -118,3 +118,20 @@ export const deleteUser = async (req, res) => {
     res.status(500).json({ msg: 'Error del servidor' });
   }
 };
+export const buscarUsuariosPorNombre = async (req, res) => {
+  try {
+    const { name } = req.query;
+
+    if (!name || name.trim().length < 2) {
+      return res.status(400).json({ msg: "Nombre demasiado corto para buscar." });
+    }
+
+    const regex = new RegExp(name, "i"); // búsqueda insensible a mayúsculas/minúsculas
+    const users = await User.find({ name: regex }).select("name email profileImage");
+
+    res.json({ users });
+  } catch (error) {
+    console.error("Error al buscar usuarios:", error);
+    res.status(500).json({ msg: "Error al buscar usuarios." });
+  }
+};

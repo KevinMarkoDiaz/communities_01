@@ -3,7 +3,8 @@ import {
   getAllUsers,
   getUserById,
   updateUser,
-  deleteUser
+  deleteUser,
+  buscarUsuariosPorNombre
 } from '../controllers/user.controller.js';
 
 import { registerUser } from '../controllers/auth.controller.js';
@@ -22,6 +23,8 @@ router.post('/', authMiddleware, isAdmin, registerUser);
 
 // 📥 Obtener todos los usuarios (solo admin)
 router.get('/', authMiddleware, isAdmin, getAllUsers);
+
+router.get('/search', authMiddleware, isAdmin, buscarUsuariosPorNombre);
 
 // 🔍 Obtener un usuario por ID
 router.get('/:id', authMiddleware, getUserById);
