@@ -1,38 +1,54 @@
 import { validationResult } from 'express-validator'; // Omitir si usás Zod
 import Business from '../models/business.model.js';
 import Community from '../models/community.model.js';
-
+import fs from "fs/promises";
+import { v2 as cloudinary } from "cloudinary";
 /**
  * Crear un nuevo negocio
  */
 export const createBusiness = async (req, res) => {
-  const errors = validationResult(req); // Omitir si usás Zod
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
-  const {
-    name,
-    description,
-    category,
-    community,
-    location,
-    contact,
-    openingHours,
-    tags,
-    isVerified,
-  } = req.body;
-
   try {
     if (!['admin', 'business_owner'].includes(req.user.role)) {
       return res.status(403).json({ msg: 'No tienes permisos para crear un negocio.' });
     }
+
+    const {
+      name,
+      description,
+      category,
+      community,
+      location,
+      contact,
+      openingHours,
+      tags,
+      isVerified,
+    } = req.body;
 
     const communityDoc = await Community.findById(community);
     if (!communityDoc) {
       return res.status(404).json({ msg: 'Comunidad no encontrada.' });
     }
 
+    // 📤 Subir imagen destacada a Cloudinary
+    let featuredImageUrl = "";
+    if (req.files?.featuredImage?.[0]) {
+      const file = req.files.featuredImage[0];
+      const result = await cloudinary.uploader.upload(file.path);
+      featuredImageUrl = result.secure_url;
+      await fs.unlink(file.path); // 🧹 Limpia archivo temporal
+    }
+
+    // 📤 Subir galería
+    const galleryUrls = [];
+    if (req.files?.gallery?.length) {
+      for (const file of req.files.gallery) {
+        const result = await cloudinary.uploader.upload(file.path);
+        galleryUrls.push(result.secure_url);
+        await fs.unlink(file.path); // 🧹 Limpia cada archivo
+      }
+    }
+
+    // 🧠 Crear el documento del negocio
     const newBusiness = new Business({
       name,
       description,
@@ -44,11 +60,8 @@ export const createBusiness = async (req, res) => {
       tags,
       isVerified: isVerified ?? false,
       owner: req.user.id,
-
-      // 👇 Manejo de imágenes desde req.body (rellenado en el middleware)
-      featuredImage: req.body.featuredImage || "",
-      profileImage: req.body.profileImage || "",
-      images: req.body.images || [],
+      featuredImage: featuredImageUrl,
+      images: galleryUrls,
     });
 
     await newBusiness.save();
@@ -63,10 +76,11 @@ export const createBusiness = async (req, res) => {
       business: populatedBusiness,
     });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en createBusiness:", error);
     res.status(500).json({ msg: 'Error al crear el negocio.' });
   }
 };
+
 
 /**
  * Obtener todos los negocios

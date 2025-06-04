@@ -27,7 +27,6 @@ router.post(
   uploaderMiddleware,
   imageProcessor,
   parseDataField,              // ⬅️ este es el nuevo
-  validateBody(businessSchema),
   createBusiness
 );
 
