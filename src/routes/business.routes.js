@@ -14,17 +14,19 @@ import { validateBody } from '../middlewares/validateBody.js';
 import { updateBusinessSchema } from '../schemas/business-update.schema.js';
 import { businessSchema } from '../schemas/business.schema.js';
 import { imageProcessor, uploaderMiddleware } from '../middlewares/imageUpload.middleware.js';
+import { parseDataField } from '../middlewares/parseDataField.js';
 
 
 const router = Router();
 
 // Crear negocio (solo admin o business_owner)
 router.post(
-  '/businesses',
+  "/businesses",
   authMiddleware,
-  hasRole('admin', 'business_owner'),
+  hasRole("admin", "business_owner"),
   uploaderMiddleware,
   imageProcessor,
+  parseDataField,              // ⬅️ este es el nuevo
   validateBody(businessSchema),
   createBusiness
 );
