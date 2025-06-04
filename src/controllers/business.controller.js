@@ -182,6 +182,32 @@ export const updateBusiness = async (req, res) => {
         .json({ msg: "No puedes cambiar el propietario del negocio." });
     }
 
+    // ✅ Imagen destacada: nuevo archivo o URL existente
+    if (req.files?.featuredImage?.[0]) {
+      featuredImage = req.body.featuredImage;
+    } else if (req.body.featuredImageUrl) {
+      featuredImage = req.body.featuredImageUrl;
+    }
+
+    // ✅ Imagen de perfil: nuevo archivo o URL existente
+    if (req.files?.profileImage?.[0]) {
+      profileImage = req.body.profileImage;
+    } else if (req.body.profileImageUrl) {
+      profileImage = req.body.profileImageUrl;
+    }
+
+    // ✅ Galería: nuevos archivos ya procesados o URLs anteriores
+    if (req.files?.images?.length) {
+      // Se mantiene el campo `images` recibido como string o array ya parseado
+    } else if (req.body.existingImages) {
+      try {
+        images = JSON.parse(req.body.existingImages);
+      } catch (err) {
+        console.warn("❗Error al parsear existingImages:", err);
+        images = [];
+      }
+    }
+
     // 🛠️ Actualizar campos permitidos
     if (name) business.name = name;
     if (description) business.description = description;
@@ -192,8 +218,6 @@ export const updateBusiness = async (req, res) => {
     if (openingHours) business.openingHours = openingHours;
     if (tags) business.tags = tags;
     if (typeof isVerified === "boolean") business.isVerified = isVerified;
-
-    // ✅ Nuevos campos de imagen
     if (featuredImage) business.featuredImage = featuredImage;
     if (profileImage) business.profileImage = profileImage;
     if (images) business.images = images;
