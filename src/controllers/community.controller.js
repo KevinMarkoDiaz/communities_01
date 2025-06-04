@@ -32,6 +32,9 @@ export const createCommunity = async (req, res) => {
       tipo,
       owner: req.user.id,
     });
+console.log("🟡 req.body final:", req.body);
+console.log("🖼️ Imagen destacada:", req.body.featuredImage);
+console.log("🖼️ Galería:", req.body.images);
 
     await newCommunity.save();
 
