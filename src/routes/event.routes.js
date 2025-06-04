@@ -12,8 +12,10 @@ import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
 import { validateBody } from "../middlewares/validator.middleware.js";
 import { eventSchema } from "../schemas/event.schema.js";
-
-import { upload } from "../config/cloudinary.js";
+import {
+  singleProfileImageUpload, // usaremos este para "image"
+  handleProfileImage        // para subir a Cloudinary y guardar secure_url
+} from "../middlewares/imageUpload.middleware.js";
 
 const router = Router();
 
@@ -22,13 +24,8 @@ router.post(
   "/events",
   authMiddleware,
   hasRole("admin", "business_owner"),
-  upload.single("image"),
-  (req, res, next) => {
-    if (req.file) {
-      req.body.image = req.file.path;
-    }
-    next();
-  },
+  singleProfileImageUpload,
+  handleProfileImage, // ✅ sube la imagen a Cloudinary y setea req.body.image
   validateBody(eventSchema),
   createEvent
 );
@@ -52,14 +49,9 @@ router.put(
   "/events/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
-  upload.single("image"),
-  (req, res, next) => {
-    if (req.file) {
-      req.body.image = req.file.path;
-    }
-    next();
-  },
-  validateBody(eventSchema.partial()), // permite actualizar campos opcionales
+  singleProfileImageUpload,
+  handleProfileImage, // ✅ vuelve a subir si hay una nueva imagen
+  validateBody(eventSchema.partial()), // permite campos opcionales
   updateEvent
 );
 
