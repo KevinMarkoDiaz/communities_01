@@ -46,7 +46,7 @@ export const createBusiness = async (req, res) => {
     }
 
     const featuredImageUrl = req.body.featuredImage || "";
-
+    const profileImageUrl = req.body.profileImage || "";
     const galleryUrls = req.body.images || [];
 
     // 🧠 Crear el documento del negocio
@@ -62,6 +62,7 @@ export const createBusiness = async (req, res) => {
       isVerified: isVerified ?? false,
       owner: req.user.id,
       featuredImage: featuredImageUrl,
+      profileImage: profileImageUrl, // 🆕 logo o avatar del negocio
       images: galleryUrls,
     });
 

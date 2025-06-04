@@ -34,6 +34,7 @@ export const upload = multer({ storage });
 // Subida de múltiples campos
 export const uploaderMiddleware = upload.fields([
   { name: "featuredImage", maxCount: 1 },
+  { name: "profileImage", maxCount: 1 }, // 🆕
   { name: "images", maxCount: 5 },
 ]);
 
@@ -67,13 +68,16 @@ export const imageProcessor = async (req, res, next) => {
     }
 
     // Imagen de perfil del negocio
-    // if (files?.profileImage?.[0]) {
-    //   const result = await cloudinary.uploader.upload(files.profileImage[0].path, {
-    //     folder: 'perfiles',
-    //   });
-    //   req.body.profileImage = result.secure_url;
-    //   await fs.unlink(files.profileImage[0].path);
-    // }
+    if (files?.profileImage?.[0]) {
+      const result = await cloudinary.uploader.upload(
+        files.profileImage[0].path,
+        {
+          folder: "perfiles",
+        }
+      );
+      req.body.profileImage = result.secure_url;
+      await fsp.unlink(files.profileImage[0].path);
+    }
 
     // Galería de imágenes del negocio
     if (files?.images?.length > 0) {
