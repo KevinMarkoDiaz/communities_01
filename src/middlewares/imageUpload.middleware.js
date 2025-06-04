@@ -25,7 +25,6 @@ export const upload = multer({ storage });
 // Subida de múltiples campos
 export const uploaderMiddleware = upload.fields([
   { name: 'featuredImage', maxCount: 1 },
-  { name: 'profileImage', maxCount: 1 },
   { name: 'images', maxCount: 5 },
 ]);
 

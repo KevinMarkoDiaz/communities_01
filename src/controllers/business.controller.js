@@ -12,7 +12,8 @@ export const createBusiness = async (req, res) => {
       return res.status(403).json({ msg: 'No tienes permisos para crear un negocio.' });
     }
 
-    const {
+    // 🔍 Parsear campos que vienen como string JSON desde FormData
+    let {
       name,
       description,
       category,
@@ -23,6 +24,16 @@ export const createBusiness = async (req, res) => {
       tags,
       isVerified,
     } = req.body;
+
+    try {
+      if (typeof location === "string") location = JSON.parse(location);
+      if (typeof contact === "string") contact = JSON.parse(contact);
+      if (typeof openingHours === "string") openingHours = JSON.parse(openingHours);
+      if (typeof tags === "string") tags = JSON.parse(tags);
+    } catch (err) {
+      console.error("❌ Error al parsear campos JSON:", err);
+      return res.status(400).json({ msg: "Formato inválido en los datos enviados." });
+    }
 
     const communityDoc = await Community.findById(community);
     if (!communityDoc) {
@@ -40,8 +51,8 @@ export const createBusiness = async (req, res) => {
 
     // 📤 Subir galería
     const galleryUrls = [];
-    if (req.files?.gallery?.length) {
-      for (const file of req.files.gallery) {
+    if (req.files?.images?.length) {
+      for (const file of req.files.images) {
         const result = await cloudinary.uploader.upload(file.path);
         galleryUrls.push(result.secure_url);
         await fs.unlink(file.path); // 🧹 Limpia cada archivo
@@ -80,6 +91,7 @@ export const createBusiness = async (req, res) => {
     res.status(500).json({ msg: 'Error al crear el negocio.' });
   }
 };
+
 
 
 /**
@@ -130,7 +142,7 @@ export const updateBusiness = async (req, res) => {
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const {
+  let {
     name,
     description,
     category,
@@ -145,6 +157,18 @@ export const updateBusiness = async (req, res) => {
     profileImage,
     owner, // ⚠️ No se debe actualizar
   } = req.body;
+
+  // 🧠 Parsear campos JSON si vienen como strings (por FormData)
+  try {
+    if (typeof location === "string") location = JSON.parse(location);
+    if (typeof contact === "string") contact = JSON.parse(contact);
+    if (typeof openingHours === "string") openingHours = JSON.parse(openingHours);
+    if (typeof tags === "string") tags = JSON.parse(tags);
+    if (typeof images === "string") images = JSON.parse(images);
+  } catch (err) {
+    console.error("❌ Error al parsear campos JSON:", err);
+    return res.status(400).json({ msg: "Formato inválido en los datos enviados." });
+  }
 
   try {
     const business = await Business.findById(req.params.id);
@@ -162,7 +186,7 @@ export const updateBusiness = async (req, res) => {
       return res.status(400).json({ msg: 'No puedes cambiar el propietario del negocio.' });
     }
 
-    // Actualizar campos permitidos
+    // 🛠️ Actualizar campos permitidos
     if (name) business.name = name;
     if (description) business.description = description;
     if (category) business.category = category;
@@ -190,10 +214,11 @@ export const updateBusiness = async (req, res) => {
       business: populated,
     });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en updateBusiness:", error);
     res.status(500).json({ msg: 'Error al actualizar el negocio.' });
   }
 };
+
 
 /**
  * Eliminar un negocio
