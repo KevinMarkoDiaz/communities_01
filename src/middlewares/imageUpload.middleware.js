@@ -1,6 +1,8 @@
 import multer from 'multer';
-import fs from 'fs/promises';
 import { v2 as cloudinary } from 'cloudinary';
+import path from "path";
+import fs from 'fs'; // 👈 este para existsSync y mkdirSync
+import fsp from 'fs/promises'; // 👈 este para await fs.unlink()
 
 // ⚙️ Configuración de Cloudinary
 cloudinary.config({
@@ -10,6 +12,12 @@ cloudinary.config({
 });
 
 // 📦 Multer (almacenamiento temporal en disco)
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true }); // 🛠️ asegura que crea el árbol si hace falta
+}
+
+
 const storage = multer.diskStorage({
   destination: 'uploads/',
   filename: (req, file, cb) => {
@@ -39,7 +47,7 @@ export const imageProcessor = async (req, res, next) => {
         folder: 'negocios',
       });
       req.body.featuredImage = result.secure_url;
-      await fs.unlink(files.featuredImage[0].path);
+await fsp.unlink(files.featuredImage[0].path);
     }
 
     // Imagen de perfil del negocio
