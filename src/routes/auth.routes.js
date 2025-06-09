@@ -1,49 +1,71 @@
-import { Router } from 'express';
+import { Router } from "express";
+import passport from "passport";
+
 import {
   registerUser,
   loginUser,
   logoutUser,
   getUserProfile,
-  getCurrentUser,  
-} from '../controllers/auth.controller.js';
+  getCurrentUser,
+} from "../controllers/auth.controller.js";
 
-import { authMiddleware } from '../middlewares/validateToken.js';
-import { validateBody } from '../middlewares/validateBody.js';
-import { userSchema } from '../schemas/user.schema.js';
-import { loginSchema } from '../schemas/login.schema.js'; // lo creamos abajo
-import { userUpdateSchema } from '../schemas/user-update.schema.js';
+import { authMiddleware } from "../middlewares/validateToken.js";
+import { validateBody } from "../middlewares/validateBody.js";
+import { userSchema } from "../schemas/user.schema.js";
+import { loginSchema } from "../schemas/login.schema.js";
+import { userUpdateSchema } from "../schemas/user-update.schema.js";
 
 import {
   singleProfileImageUpload,
-  handleProfileImage
-} from '../middlewares/imageUpload.middleware.js';
-import { updateUser } from '../controllers/user.controller.js';
+  handleProfileImage,
+} from "../middlewares/imageUpload.middleware.js";
+
+import { updateUser } from "../controllers/user.controller.js";
 
 const router = Router();
 
 // 📥 Registro público de usuarios
-router.post('/register', validateBody(userSchema), registerUser);
+router.post("/register", validateBody(userSchema), registerUser);
 
 // 🔐 Login con validación Zod
-router.post('/login', validateBody(loginSchema), loginUser);
+router.post("/login", validateBody(loginSchema), loginUser);
 
-// 🚪 Logout (opcional según tu auth)
-router.post('/logout', logoutUser);
+// 🚪 Logout
+router.post("/logout", logoutUser);
 
 // 👤 Perfil del usuario autenticado
-router.get('/profile', authMiddleware, getUserProfile);
+router.get("/profile", authMiddleware, getUserProfile);
 
-// 🧑 Datos del usuario actual (útil para el frontend)
-router.get('/me', authMiddleware, getCurrentUser);
+// 🧑 Datos del usuario actual
+router.get("/me", authMiddleware, getCurrentUser);
 
-// ✏️ Actualizar perfil del usuario autenticado (opcional)
+// ✏️ Actualizar perfil
 router.put(
-  '/profile',
+  "/profile",
   authMiddleware,
   singleProfileImageUpload,
   handleProfileImage,
   validateBody(userUpdateSchema),
   updateUser
+);
+
+//
+// ✅ Rutas para autenticación con Google
+//
+
+// Iniciar el flujo con Google (redirige a Google)
+router.get(
+  "/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
+
+// Ruta de retorno (callback) desde Google
+router.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    successRedirect: "http://localhost:5173/dashboard", // cambialo por tu URL de frontend
+    failureRedirect: "/login",
+  })
 );
 
 export default router;
