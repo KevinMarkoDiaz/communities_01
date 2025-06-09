@@ -14,6 +14,7 @@ import categoryRoutes from "./routes/category.routes.js";
 import eventRoutes from "./routes/event.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import stripeRoutes from "./routes/stripe.routes.js";
+import searchRoutes from "./routes/search.routes.js";
 import { rawBodyMiddleware } from "./middlewares/rawBodyMiddleware.js";
 
 const app = express();
@@ -57,6 +58,7 @@ app.use((req, res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/stripe", stripeRoutes);
+app.use("/api/busqueda", searchRoutes);
 app.use("/api", communityRoutes);
 app.use("/api", businessRoutes);
 app.use("/api", categoryRoutes);
