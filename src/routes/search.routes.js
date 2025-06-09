@@ -13,17 +13,15 @@ router.get("/", async (req, res) => {
 
     const [negocios, eventos, comunidades] = await Promise.all([
       Business.find({
-        $or: [{ nombre: regex }, { descripcion: regex }, { categoria: regex }],
+        $or: [{ name: regex }, { description: regex }, { tags: regex }],
       })
-        .select("nombre descripcion categoria featuredImage comunidad")
-        .populate("comunidad", "name flagImage") // solo nombre y bandera
+        .select("name description featuredImage")
         .lean(),
 
       Event.find({
-        $or: [{ title: regex }, { description: regex }],
+        $or: [{ title: regex }, { description: regex }, { tags: regex }],
       })
-        .select("title description image date time community")
-        .populate("community", "name flagImage")
+        .select("title description image date time")
         .lean(),
 
       Community.find({
@@ -37,21 +35,18 @@ router.get("/", async (req, res) => {
       ...negocios.map((n) => ({
         tipo: "negocio",
         id: n._id,
-        nombre: n.nombre,
-        descripcion: n.descripcion,
-        categoria: n.categoria,
+        nombre: n.name,
+        descripcion: n.description,
         imagen: n.featuredImage,
-        comunidad: n.comunidad,
       })),
       ...eventos.map((e) => ({
         tipo: "evento",
         id: e._id,
         titulo: e.title,
         descripcion: e.description,
+        imagen: e.image,
         fecha: e.date,
         hora: e.time,
-        imagen: e.image,
-        comunidad: e.community,
       })),
       ...comunidades.map((c) => ({
         tipo: "comunidad",
