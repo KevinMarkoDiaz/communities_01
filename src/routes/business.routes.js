@@ -6,6 +6,7 @@ import {
   updateBusiness,
   deleteBusiness,
   getMyBusinesses,
+  getPromotionsByBusiness,
 } from "../controllers/business.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
@@ -41,6 +42,10 @@ router.get(
   hasRole("admin", "business_owner"),
   getMyBusinesses
 );
+
+// Obtener promociones de un negocio
+router.get("/businesses/:id/promotions", getPromotionsByBusiness);
+
 // Obtener negocio por ID
 router.get("/businesses/:id", getBusinessById);
 

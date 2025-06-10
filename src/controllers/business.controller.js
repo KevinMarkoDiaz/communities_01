@@ -290,3 +290,30 @@ export const getMyBusinesses = async (req, res) => {
     res.status(500).json({ msg: "Error al obtener tus negocios." });
   }
 };
+
+export const getPromotionsByBusiness = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const negocio = await Business.findById(id)
+      .populate({
+        path: "promotions",
+        populate: [
+          { path: "category", select: "name" },
+          { path: "community", select: "name" },
+        ],
+      })
+      .select("name promotions");
+
+    if (!negocio) {
+      return res.status(404).json({ msg: "Negocio no encontrado" });
+    }
+
+    console.log("🔎 Promociones del negocio:", negocio.promotions);
+
+    res.json({ promotions: negocio.promotions });
+  } catch (error) {
+    console.error("❌ Error al obtener promociones del negocio:", error);
+    res.status(500).json({ msg: "Error interno del servidor" });
+  }
+};

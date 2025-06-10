@@ -120,11 +120,18 @@ export const handleProfileImage = async (req, res, next) => {
         folder: "perfiles",
       });
       req.body.profileImage = result.secure_url;
-      await fs.unlink(req.file.path);
+
+      // ✅ Eliminar archivo local
+      try {
+        await fsp.unlink(req.file.path);
+        console.log("🧹 Imagen eliminada correctamente");
+      } catch (unlinkErr) {
+        console.error("⚠️ Error eliminando imagen:", unlinkErr);
+      }
     }
     next();
   } catch (error) {
-    console.error("Error al subir imagen de perfil:", error);
+    console.error("❌ Error al subir imagen de perfil:", error);
     res.status(500).json({ msg: "Error en imagen de perfil" });
   }
 };
@@ -139,6 +146,9 @@ export const uploadCommunityImages = upload.fields([
 ]);
 
 export const processCommunityImages = async (req, res, next) => {
+  console.log("🟣 FILES RECIBIDOS:", req.files);
+  console.log("🟣 BODY ANTES DE VALIDACIÓN:", req.body);
+
   try {
     const files = req.files;
 
@@ -148,7 +158,7 @@ export const processCommunityImages = async (req, res, next) => {
         folder: "comunidades/banderas",
       });
       req.body.flagImage = result.secure_url;
-      await fs.unlink(files.flagImage[0].path);
+      await fsp.unlink(files.flagImage[0].path);
     }
 
     // Imagen de banner
@@ -160,7 +170,7 @@ export const processCommunityImages = async (req, res, next) => {
         }
       );
       req.body.bannerImage = result.secure_url;
-      await fs.unlink(files.bannerImage[0].path);
+      await fsp.unlink(files.bannerImage[0].path);
     }
 
     next();

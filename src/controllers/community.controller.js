@@ -1,50 +1,55 @@
-import { validationResult } from 'express-validator';
-import Community from '../models/community.model.js';
+import { validationResult } from "express-validator";
+import Community from "../models/community.model.js";
 
 /**
  * Crea una nueva comunidad.
  * Solo los administradores o propietarios de negocios pueden crear comunidades.
  */
 export const createCommunity = async (req, res) => {
+  console.log("🔴 CREATE COMMUNITY BODY:", req.body);
+
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const { name, description, flagImage, imagenDestacada, language, tipo } = req.body;
+  // ⚠️ CAMBIO CLAVE AQUÍ
+  const { name, description, flagImage, bannerImage, language, tipo } =
+    req.body;
 
   try {
-    if (!['admin', 'business_owner'].includes(req.user.role)) {
-      return res.status(403).json({ msg: 'Acceso denegado. No tienes permisos para crear comunidades.' });
+    if (!["admin", "business_owner"].includes(req.user.role)) {
+      return res.status(403).json({
+        msg: "Acceso denegado. No tienes permisos para crear comunidades.",
+      });
     }
 
     const existingCommunity = await Community.findOne({ name });
     if (existingCommunity) {
-      return res.status(400).json({ msg: 'Ya existe una comunidad con ese nombre.' });
+      return res
+        .status(400)
+        .json({ msg: "Ya existe una comunidad con ese nombre." });
     }
 
     const newCommunity = new Community({
       name,
       description,
       flagImage,
-      imagenDestacada,
+      bannerImage, // ✅ ahora sí está definido correctamente
       language,
       tipo,
       owner: req.user.id,
     });
-console.log("🟡 req.body final:", req.body);
-console.log("🖼️ Imagen destacada:", req.body.featuredImage);
-console.log("🖼️ Galería:", req.body.images);
 
     await newCommunity.save();
 
     res.status(201).json({
-      msg: 'Comunidad creada exitosamente.',
+      msg: "Comunidad creada exitosamente.",
       community: newCommunity,
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ msg: 'Error en la creación de la comunidad.' });
+    res.status(500).json({ msg: "Error en la creación de la comunidad." });
   }
 };
 
@@ -57,7 +62,7 @@ export const getAllCommunities = async (req, res) => {
     res.status(200).json({ communities });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ msg: 'Error al obtener las comunidades.' });
+    res.status(500).json({ msg: "Error al obtener las comunidades." });
   }
 };
 
@@ -69,7 +74,10 @@ export const getCommunityById = async (req, res) => {
     const community = await Community.findById(req.params.id)
       .populate({ path: "owner", select: "name email role profileImage" })
       .populate({ path: "negocios", select: "name category location images" })
-      .populate({ path: "eventos", select: "title startDate endDate imagenDestacada" });
+      .populate({
+        path: "eventos",
+        select: "title startDate endDate imagenDestacada",
+      });
 
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
@@ -86,48 +94,69 @@ export const getCommunityById = async (req, res) => {
  * Actualiza una comunidad específica.
  * Solo el propietario de la comunidad o un administrador puede actualizarla.
  */
+
 export const updateCommunity = async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
-  const { name, description, flagImage, imagenDestacada, language, tipo } = req.body;
-
   try {
+    // Validación de campos básicos
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    // Parseo de datos si vienen desde FormData
+    const data = req.body.data ? JSON.parse(req.body.data) : req.body;
+
+    const { name, description, language, tipo } = data;
+
     const community = await Community.findById(req.params.id);
     if (!community) {
-      return res.status(404).json({ msg: 'Comunidad no encontrada.' });
+      return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    if (community.owner.toString() !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ msg: 'No tienes permisos para editar esta comunidad.' });
+    // Verificación de permisos
+    if (
+      community.owner.toString() !== req.user.id &&
+      req.user.role !== "admin"
+    ) {
+      return res
+        .status(403)
+        .json({ msg: "No tienes permisos para editar esta comunidad." });
     }
 
-    // Validar si el nombre es nuevo y ya existe
+    // Validar duplicado si cambia el nombre
     if (name && name !== community.name) {
       const exists = await Community.findOne({ name });
       if (exists) {
-        return res.status(400).json({ msg: 'Ya existe una comunidad con ese nombre.' });
+        return res
+          .status(400)
+          .json({ msg: "Ya existe una comunidad con ese nombre." });
       }
     }
 
+    // ✅ Asignar imágenes solo si fueron subidas en el middleware
+    if (req.body.flagImage) {
+      community.flagImage = req.body.flagImage;
+    }
+
+    if (req.body.bannerImage) {
+      community.bannerImage = req.body.bannerImage;
+    }
+
+    // ✅ Actualizar campos de texto
     community.name = name || community.name;
     community.description = description || community.description;
-    community.flagImage = flagImage || community.flagImage;
-    community.imagenDestacada = imagenDestacada || community.imagenDestacada;
     community.language = language || community.language;
     community.tipo = tipo || community.tipo;
 
     await community.save();
 
     res.status(200).json({
-      msg: 'Comunidad actualizada exitosamente.',
+      msg: "Comunidad actualizada exitosamente.",
       community,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ msg: 'Error al actualizar la comunidad.' });
+    console.error("❌ Error al actualizar comunidad:", error);
+    res.status(500).json({ msg: "Error al actualizar la comunidad." });
   }
 };
 
@@ -139,18 +168,23 @@ export const deleteCommunity = async (req, res) => {
   try {
     const community = await Community.findById(req.params.id);
     if (!community) {
-      return res.status(404).json({ msg: 'Comunidad no encontrada.' });
+      return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    if (community.owner.toString() !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ msg: 'No tienes permisos para eliminar esta comunidad.' });
+    if (
+      community.owner.toString() !== req.user.id &&
+      req.user.role !== "admin"
+    ) {
+      return res
+        .status(403)
+        .json({ msg: "No tienes permisos para eliminar esta comunidad." });
     }
 
     await community.deleteOne();
-    res.status(200).json({ msg: 'Comunidad eliminada exitosamente.' });
+    res.status(200).json({ msg: "Comunidad eliminada exitosamente." });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ msg: 'Error al eliminar la comunidad.' });
+    res.status(500).json({ msg: "Error al eliminar la comunidad." });
   }
 };
 

@@ -15,6 +15,7 @@ import eventRoutes from "./routes/event.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import stripeRoutes from "./routes/stripe.routes.js";
 import searchRoutes from "./routes/search.routes.js";
+import promotionRoutes from "./routes/promotion.routes.js";
 import { rawBodyMiddleware } from "./middlewares/rawBodyMiddleware.js";
 
 const app = express();
@@ -59,6 +60,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/stripe", stripeRoutes);
 app.use("/api/busqueda", searchRoutes);
+app.use("/api", promotionRoutes);
+
 app.use("/api", communityRoutes);
 app.use("/api", businessRoutes);
 app.use("/api", categoryRoutes);

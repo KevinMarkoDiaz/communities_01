@@ -12,7 +12,7 @@ export const createEvent = async (req, res) => {
     communities = [],
     businesses = [],
     categories = [],
-    image
+    featuredImage,
   } = req.body;
 
   try {
@@ -25,14 +25,16 @@ export const createEvent = async (req, res) => {
       communities,
       businesses,
       categories,
-      image,
+      featuredImage,
       organizer: req.user.id,
-      organizerModel: req.user.role === "business_owner" ? "Business" : "User"
+      organizerModel: req.user.role === "business_owner" ? "Business" : "User",
     });
 
     await newEvent.save();
 
-    res.status(201).json({ msg: "Evento creado exitosamente", event: newEvent });
+    res
+      .status(201)
+      .json({ msg: "Evento creado exitosamente", event: newEvent });
   } catch (error) {
     console.error(error);
     res.status(500).json({ msg: "Error al crear el evento" });
@@ -45,7 +47,7 @@ export const getAllEvents = async (req, res) => {
       .populate("communities")
       .populate("businesses")
       .populate("categories")
-      .populate("organizer")
+      .populate("organizer");
 
     res.status(200).json({ events });
   } catch (error) {
@@ -60,7 +62,7 @@ export const getEventById = async (req, res) => {
       .populate("communities")
       .populate("businesses")
       .populate("categories")
-      .populate("organizer")
+      .populate("organizer");
 
     if (!event) return res.status(404).json({ msg: "Evento no encontrado" });
 
@@ -78,18 +80,23 @@ export const updateEvent = async (req, res) => {
     date,
     time,
     location,
-    image,
+    featuredImage,
     communities,
     businesses,
-    categories
+    categories,
   } = req.body;
 
   try {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ msg: "Evento no encontrado" });
 
-    if (event.organizer.toString() !== req.user.id && req.user.role !== "admin") {
-      return res.status(403).json({ msg: "No tienes permisos para editar este evento" });
+    if (
+      event.organizer.toString() !== req.user.id &&
+      req.user.role !== "admin"
+    ) {
+      return res
+        .status(403)
+        .json({ msg: "No tienes permisos para editar este evento" });
     }
 
     event.title = title ?? event.title;
@@ -97,7 +104,7 @@ export const updateEvent = async (req, res) => {
     event.date = date ?? event.date;
     event.time = time ?? event.time;
     event.location = location ?? event.location;
-    event.image = image ?? event.image;
+    event.featuredImage = featuredImage ?? event.featuredImage;
     event.communities = communities ?? event.communities;
     event.businesses = businesses ?? event.businesses;
     event.categories = categories ?? event.categories;
@@ -116,8 +123,13 @@ export const deleteEvent = async (req, res) => {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ msg: "Evento no encontrado" });
 
-    if (event.organizer.toString() !== req.user.id && req.user.role !== "admin") {
-      return res.status(403).json({ msg: "No tienes permisos para eliminar este evento" });
+    if (
+      event.organizer.toString() !== req.user.id &&
+      req.user.role !== "admin"
+    ) {
+      return res
+        .status(403)
+        .json({ msg: "No tienes permisos para eliminar este evento" });
     }
 
     await event.deleteOne();
@@ -128,7 +140,7 @@ export const deleteEvent = async (req, res) => {
   }
 };
 export const getMyEventsController = async (req, res) => {
-   try {
+  try {
     const events = await Event.find({
       organizer: req.user.id,
       organizerModel: "User", // si querés que también aplique a negocios, hacé dinámico
