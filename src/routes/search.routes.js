@@ -54,7 +54,7 @@ router.get("/", async (req, res) => {
         nombre: c.name,
         descripcion: c.description,
         idioma: c.language,
-        imagen: c.flagImage,
+        imagen: c.bannerImage,
       })),
     ];
 
