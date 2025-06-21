@@ -1,7 +1,7 @@
-import bcrypt from 'bcryptjs';
-import User from '../models/user.model.js';
-import { createAccessToken } from '../libs/jwt.js';
-import { setAuthCookie } from '../utils/setAuthCookie.js';
+import bcrypt from "bcryptjs";
+import User from "../models/user.model.js";
+import { createAccessToken } from "../libs/jwt.js";
+import { setAuthCookie } from "../utils/setAuthCookie.js";
 
 /**
  * Registro de usuario
@@ -12,11 +12,15 @@ export const registerUser = async (req, res) => {
   try {
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ msg: 'El correo electrónico ya está registrado' });
+      return res
+        .status(400)
+        .json({ msg: "El correo electrónico ya está registrado" });
     }
 
     if (role === "admin") {
-      return res.status(403).json({ msg: "No tienes permisos para asignar el rol de admin." });
+      return res
+        .status(403)
+        .json({ msg: "No tienes permisos para asignar el rol de admin." });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -56,7 +60,7 @@ export const registerUser = async (req, res) => {
     });
   } catch (error) {
     console.error("Error en registro:", error);
-    res.status(500).send('Error del servidor');
+    res.status(500).send("Error del servidor");
   }
 };
 
@@ -106,7 +110,7 @@ export const loginUser = async (req, res) => {
 export const logoutUser = (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
     sameSite: "none",
   });
 
@@ -133,7 +137,7 @@ export const getUserProfile = async (req, res) => {
       isVerified: user.isVerified,
       community: user.community,
       createdAt: user.createdAt,
-      updatedAt: user.updatedAt
+      updatedAt: user.updatedAt,
     });
   } catch (error) {
     console.error("Error al obtener perfil:", error);

@@ -2,8 +2,8 @@ import express from "express";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import session from "express-session";
-import passport from "passport";
+// import session from "express-session";
+// import passport from "passport";
 import "./config/passport.js"; // Tu estrategia Google
 
 import authRoutes from "./routes/auth.routes.js";
@@ -22,22 +22,23 @@ const app = express();
 
 app.use(morgan("dev"));
 app.use(cookieParser());
+// descomentar cuando usea passport para login
 
-app.use(
-  session({
-    secret: process.env.JWT_SECRET || "comunidades_session_secret",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: false,
-      httpOnly: true,
-      sameSite: "lax",
-    },
-  })
-);
+// app.use(
+//   session({
+//     secret: process.env.JWT_SECRET || "comunidades_session_secret",
+//     resave: false,
+//     saveUninitialized: false,
+//     cookie: {
+//       secure: false,
+//       httpOnly: true,
+//       sameSite: "lax",
+//     },
+//   })
+// );
 
-app.use(passport.initialize());
-app.use(passport.session());
+// app.use(passport.initialize());
+// app.use(passport.session());
 
 // const allowedOrigins = [
 //   "http://localhost:5173",
@@ -60,7 +61,7 @@ app.use(passport.session());
 
 app.use(
   cors({
-    origin: "https://communidades.com",
+    origin: process.env.FRONTEND_URL,
     credentials: true,
   })
 );
