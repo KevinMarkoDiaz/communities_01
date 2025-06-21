@@ -44,7 +44,7 @@ router.get("/", async (req, res) => {
         id: e._id,
         titulo: e.title,
         descripcion: e.description,
-        imagen: e.image,
+        imagen: e.featuredImage,
         fecha: e.date,
         hora: e.time,
       })),
