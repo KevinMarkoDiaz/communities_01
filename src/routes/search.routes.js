@@ -21,13 +21,13 @@ router.get("/", async (req, res) => {
       Event.find({
         $or: [{ title: regex }, { description: regex }, { tags: regex }],
       })
-        .select("title description image date time")
+        .select("title description featuredImage date time")
         .lean(),
 
       Community.find({
         $or: [{ name: regex }, { description: regex }, { language: regex }],
       })
-        .select("name description flagImage language")
+        .select("name description bannerImage language")
         .lean(),
     ]);
 
