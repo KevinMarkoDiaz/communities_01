@@ -39,21 +39,28 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://communidades.com",
-  "https://www.communidades.com",
-];
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://communidades.com",
+//   "https://www.communidades.com",
+// ];
+
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       if (!origin || allowedOrigins.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     credentials: true,
+//   })
+// );
 
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: "https://communidades.com",
     credentials: true,
   })
 );
