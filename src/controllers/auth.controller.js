@@ -111,7 +111,7 @@ export const logoutUser = (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
     secure: true,
-    sameSite: "Lax",
+    sameSite: "None",
   });
 
   res.status(200).json({ message: "Sesión cerrada correctamente" });
