@@ -140,42 +140,81 @@ export const handleProfileImage = async (req, res, next) => {
    MIDDLEWARES PARA COMUNIDADES
 ----------------------------------------------------- */
 
-export const uploadCommunityImages = upload.fields([
-  { name: "flagImage", maxCount: 1 },
-  { name: "bannerImage", maxCount: 1 },
-]);
+export const uploadCommunityImages = upload.any(); // permite cualquier campo de imagen
+
+async function uploadToCloudinary(filePath, folder = "communities") {
+  const result = await cloudinary.uploader.upload(filePath, { folder });
+  return result;
+}
+
+async function deleteTempFile(filePath) {
+  try {
+    await fsp.unlink(filePath);
+  } catch (err) {
+    console.warn("⚠️ No se pudo borrar archivo temporal:", err.message);
+  }
+}
+// 👇 En processCommunityImages middleware
 
 export const processCommunityImages = async (req, res, next) => {
-  console.log("🟣 FILES RECIBIDOS:", req.files);
-  console.log("🟣 BODY ANTES DE VALIDACIÓN:", req.body);
-
   try {
-    const files = req.files;
-
-    // Imagen de bandera
-    if (files?.flagImage?.[0]) {
-      const result = await cloudinary.uploader.upload(files.flagImage[0].path, {
-        folder: "comunidades/banderas",
-      });
-      req.body.flagImage = result.secure_url;
-      await fsp.unlink(files.flagImage[0].path);
+    // Procesar flagImage
+    if (req.files?.flagImage?.[0]) {
+      const uploadResult = await uploadToCloudinary(
+        req.files.flagImage[0].path
+      );
+      req.body.flagImage = uploadResult.secure_url;
+      await deleteTempFile(req.files.flagImage[0].path);
     }
 
-    // Imagen de banner
-    if (files?.bannerImage?.[0]) {
-      const result = await cloudinary.uploader.upload(
-        files.bannerImage[0].path,
-        {
-          folder: "comunidades/banner",
-        }
+    // Procesar bannerImage
+    if (req.files?.bannerImage?.[0]) {
+      const uploadResult = await uploadToCloudinary(
+        req.files.bannerImage[0].path
       );
-      req.body.bannerImage = result.secure_url;
-      await fsp.unlink(files.bannerImage[0].path);
+      req.body.bannerImage = uploadResult.secure_url;
+      await deleteTempFile(req.files.bannerImage[0].path);
+    }
+
+    // Procesar originCountryInfo.flag si se subió como imagen
+    if (req.files?.originCountryFlag?.[0]) {
+      const uploadResult = await uploadToCloudinary(
+        req.files.originCountryFlag[0].path
+      );
+      req.body.originCountryInfo = {
+        ...req.body.originCountryInfo,
+        flag: uploadResult.secure_url,
+      };
+      await deleteTempFile(req.files.originCountryFlag[0].path);
+    }
+
+    // Procesar imágenes de comida: foodImages[0], foodImages[1], etc.
+    if (req.files) {
+      const foodImages = Object.entries(req.files)
+        .filter(([key]) => key.startsWith("foodImages["))
+        .sort(([a], [b]) => {
+          const ai = parseInt(a.match(/\[(\d+)\]/)?.[1] ?? "0");
+          const bi = parseInt(b.match(/\[(\d+)\]/)?.[1] ?? "0");
+          return ai - bi;
+        });
+
+      if (!Array.isArray(req.body.food)) req.body.food = [];
+
+      for (let [key, fileArr] of foodImages) {
+        const index = parseInt(key.match(/\[(\d+)\]/)?.[1] ?? "0");
+        const file = fileArr[0];
+        const uploadResult = await uploadToCloudinary(file.path);
+        req.body.food[index] = {
+          ...(req.body.food[index] || {}),
+          image: uploadResult.secure_url,
+        };
+        await deleteTempFile(file.path);
+      }
     }
 
     next();
-  } catch (error) {
-    console.error("Error al subir imágenes de comunidad:", error);
-    res.status(500).json({ msg: "Error al procesar imágenes de comunidad" });
+  } catch (err) {
+    console.error("❌ Error en processCommunityImages:", err);
+    res.status(500).json({ error: "Error al procesar imágenes" });
   }
 };

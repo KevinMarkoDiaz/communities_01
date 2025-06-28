@@ -3,17 +3,16 @@ export function parseDataField(req, res, next) {
     if (req.body.data) {
       const parsedData = JSON.parse(req.body.data);
       req.body = {
+        ...req.body,
         ...parsedData,
-        ...req.body, // <- esto mantiene campos como featuredImage que ya se agregaron
       };
+      console.log("✅ Data parseada:", parsedData);
     }
     next();
   } catch (err) {
-    return res
-      .status(400)
-      .json({
-        msg: "Error al parsear los datos del formulario",
-        error: err.message,
-      });
+    return res.status(400).json({
+      msg: "Error al parsear los datos del formulario",
+      error: err.message,
+    });
   }
 }

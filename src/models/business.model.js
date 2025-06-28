@@ -51,11 +51,11 @@ const locationSchema = new mongoose.Schema({
   address: { type: String, required: true },
   city: { type: String, required: true },
   state: { type: String, required: true },
-  zipCode: String,
+  zipCode: { type: String, default: "" },
   country: { type: String, default: "USA" },
   coordinates: {
-    lat: Number,
-    lng: Number,
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
   },
 });
 

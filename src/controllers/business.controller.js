@@ -1,8 +1,7 @@
 import { validationResult } from "express-validator"; // Omitir si usás Zod
 import Business from "../models/business.model.js";
 import Community from "../models/community.model.js";
-import fs from "fs/promises";
-import { v2 as cloudinary } from "cloudinary";
+import { geocodeAddress } from "../utils/geocode.js"; // al inicio
 /**
  * Crear un nuevo negocio
  */
@@ -44,6 +43,13 @@ export const createBusiness = async (req, res) => {
     if (!communityDoc) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
+
+    // 🧭 Obtener coordenadas desde dirección
+    const fullAddress = `${location.address}, ${location.city}, ${
+      location.state
+    }, ${location.country || "USA"}`;
+    const coordinates = await geocodeAddress(fullAddress);
+    location.coordinates = coordinates;
 
     const featuredImageUrl = req.body.featuredImage || "";
     const profileImageUrl = req.body.profileImage || "";
@@ -160,6 +166,22 @@ export const updateBusiness = async (req, res) => {
     return res
       .status(400)
       .json({ msg: "Formato inválido en los datos enviados." });
+  }
+
+  // 🌍 Si hay nueva dirección, obtener coordenadas
+  if (location?.address && location?.city && location?.state) {
+    try {
+      const fullAddress = `${location.address}, ${location.city}, ${
+        location.state
+      }, ${location.country || "USA"}`;
+      const coords = await geocodeAddress(fullAddress);
+      location.coordinates = coords;
+    } catch (err) {
+      console.error("❌ Error al geocodificar:", err);
+      return res.status(400).json({
+        msg: "No se pudo obtener coordenadas para la nueva dirección.",
+      });
+    }
   }
 
   try {

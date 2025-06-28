@@ -6,6 +6,7 @@ import {
   updateCommunity,
   deleteCommunity,
   getMyCommunities,
+  getCommunityBySlug,
 } from "../controllers/community.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
@@ -33,10 +34,10 @@ router.post(
   "/communities",
   authMiddleware,
   hasRole("admin", "business_owner"),
-  uploadCommunityImages, // 🟡 1. Subir archivos
-  parseDataField, // 🟠 2. Parsear `data` si viene como string JSON
-  processCommunityImages, // 🔵 3. Subir imágenes a Cloudinary y limpiar temp
-  validateWith(communitySchema), // 🟢 4. Validar campos ya completos
+  uploadCommunityImages, // 🟡 archivos en req.files
+  parseDataField, // 🟠 parsea req.body.data si aplica
+  processCommunityImages, // 🔵 sube a Cloudinary, setea req.body.flagImage
+  validateWith(communitySchema), // 🟢 aquí ya debe estar flagImage como string
   createCommunity
 );
 
@@ -56,6 +57,8 @@ router.get(
 );
 
 router.get("/community/:id/promotions", getPromotionsByCommunity);
+
+router.get("/communities/slug/:slug", getCommunityBySlug);
 
 /**
  * Obtener comunidad por ID (público)

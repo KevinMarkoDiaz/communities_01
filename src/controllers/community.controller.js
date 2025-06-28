@@ -1,3 +1,4 @@
+import slugify from "slugify";
 import { validationResult } from "express-validator";
 import Community from "../models/community.model.js";
 
@@ -6,23 +7,38 @@ import Community from "../models/community.model.js";
  * Solo los administradores o propietarios de negocios pueden crear comunidades.
  */
 export const createCommunity = async (req, res) => {
-  console.log("🔴 CREATE COMMUNITY BODY:", req.body);
-
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
-  // ⚠️ CAMBIO CLAVE AQUÍ
-  const { name, description, flagImage, bannerImage, language, tipo } =
-    req.body;
-
   try {
-    if (!["admin", "business_owner"].includes(req.user.role)) {
-      return res.status(403).json({
-        msg: "Acceso denegado. No tienes permisos para crear comunidades.",
-      });
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
     }
+
+    if (!["admin", "business_owner"].includes(req.user.role)) {
+      return res
+        .status(403)
+        .json({ msg: "No tienes permisos para crear comunidades." });
+    }
+
+    const data = req.body.data ? JSON.parse(req.body.data) : req.body;
+
+    const {
+      name,
+      description,
+      flagImage,
+      bannerImage,
+      language,
+      tipo,
+      populationEstimate,
+      originCountryInfo,
+      traditions,
+      food,
+      resources,
+      socialMediaLinks,
+      region,
+      mapCenter,
+      metaTitle,
+      metaDescription,
+    } = data;
 
     const existingCommunity = await Community.findOne({ name });
     if (existingCommunity) {
@@ -31,14 +47,29 @@ export const createCommunity = async (req, res) => {
         .json({ msg: "Ya existe una comunidad con ese nombre." });
     }
 
+    const slug = slugify(name, { lower: true, strict: true });
+
     const newCommunity = new Community({
       name,
+      slug,
       description,
       flagImage,
-      bannerImage, // ✅ ahora sí está definido correctamente
+      bannerImage,
       language,
       tipo,
       owner: req.user.id,
+      populationEstimate,
+      originCountryInfo,
+      traditions,
+      food,
+      resources,
+      socialMediaLinks,
+      region,
+      mapCenter,
+      metaTitle,
+      metaDescription,
+      status: "Publicada",
+      verified: false,
     });
 
     await newCommunity.save();
@@ -58,7 +89,7 @@ export const createCommunity = async (req, res) => {
  */
 export const getAllCommunities = async (req, res) => {
   try {
-    const communities = await Community.find();
+    const communities = await Community.find().populate("owner", "name email");
     res.status(200).json({ communities });
   } catch (error) {
     console.error(error);
@@ -67,17 +98,14 @@ export const getAllCommunities = async (req, res) => {
 };
 
 /**
- * Obtiene una comunidad específica por su ID, incluyendo negocios, eventos y datos del owner.
+ * Obtiene una comunidad específica por su ID.
  */
 export const getCommunityById = async (req, res) => {
   try {
     const community = await Community.findById(req.params.id)
-      .populate({ path: "owner", select: "name email role profileImage" })
-      .populate({ path: "negocios", select: "name category location images" })
-      .populate({
-        path: "eventos",
-        select: "title startDate endDate imagenDestacada",
-      });
+      .populate("owner", "name email role profileImage")
+      .populate("negocios", "name category location images")
+      .populate("eventos", "title startDate endDate imagenDestacada");
 
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
@@ -92,28 +120,25 @@ export const getCommunityById = async (req, res) => {
 
 /**
  * Actualiza una comunidad específica.
- * Solo el propietario de la comunidad o un administrador puede actualizarla.
  */
-
 export const updateCommunity = async (req, res) => {
   try {
-    // Validación de campos básicos
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    // Parseo de datos si vienen desde FormData
     const data = req.body.data ? JSON.parse(req.body.data) : req.body;
+    const { name } = data;
 
-    const { name, description, language, tipo } = data;
-
-    const community = await Community.findById(req.params.id);
+    let community = await Community.findById(req.params.id);
+    if (!community && typeof req.params.id === "string") {
+      community = await Community.findOne({ slug: req.params.id });
+    }
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    // Verificación de permisos
     if (
       community.owner.toString() !== req.user.id &&
       req.user.role !== "admin"
@@ -123,7 +148,6 @@ export const updateCommunity = async (req, res) => {
         .json({ msg: "No tienes permisos para editar esta comunidad." });
     }
 
-    // Validar duplicado si cambia el nombre
     if (name && name !== community.name) {
       const exists = await Community.findOne({ name });
       if (exists) {
@@ -131,29 +155,42 @@ export const updateCommunity = async (req, res) => {
           .status(400)
           .json({ msg: "Ya existe una comunidad con ese nombre." });
       }
+      community.name = name;
+      community.slug = slugify(name, { lower: true, strict: true });
     }
 
-    // ✅ Asignar imágenes solo si fueron subidas en el middleware
-    if (req.body.flagImage) {
-      community.flagImage = req.body.flagImage;
-    }
+    // Actualizar campos si están presentes
+    const camposActualizables = [
+      "description",
+      "flagImage",
+      "bannerImage",
+      "language",
+      "tipo",
+      "populationEstimate",
+      "originCountryInfo",
+      "traditions",
+      "food",
+      "resources",
+      "socialMediaLinks",
+      "region",
+      "mapCenter",
+      "metaTitle",
+      "metaDescription",
+      "status",
+      "verified",
+    ];
 
-    if (req.body.bannerImage) {
-      community.bannerImage = req.body.bannerImage;
-    }
-
-    // ✅ Actualizar campos de texto
-    community.name = name || community.name;
-    community.description = description || community.description;
-    community.language = language || community.language;
-    community.tipo = tipo || community.tipo;
+    camposActualizables.forEach((campo) => {
+      if (data[campo] !== undefined) {
+        community[campo] = data[campo];
+      }
+    });
 
     await community.save();
 
-    res.status(200).json({
-      msg: "Comunidad actualizada exitosamente.",
-      community,
-    });
+    res
+      .status(200)
+      .json({ msg: "Comunidad actualizada exitosamente.", community });
   } catch (error) {
     console.error("❌ Error al actualizar comunidad:", error);
     res.status(500).json({ msg: "Error al actualizar la comunidad." });
@@ -162,7 +199,6 @@ export const updateCommunity = async (req, res) => {
 
 /**
  * Elimina una comunidad.
- * Solo el propietario de la comunidad o un administrador puede eliminarla.
  */
 export const deleteCommunity = async (req, res) => {
   try {
@@ -190,7 +226,6 @@ export const deleteCommunity = async (req, res) => {
 
 /**
  * Obtiene las comunidades del usuario autenticado.
- * Admin ve todas, otros solo las propias.
  */
 export const getMyCommunities = async (req, res) => {
   try {
@@ -200,5 +235,29 @@ export const getMyCommunities = async (req, res) => {
   } catch (error) {
     console.error("Error al obtener comunidades del usuario:", error);
     res.status(500).json({ msg: "Error al obtener comunidades." });
+  }
+};
+
+/**
+ * Obtiene una comunidad pública a través del `slug`.
+ * Incluye negocios, eventos y datos del owner.
+ */
+export const getCommunityBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const community = await Community.findOne({ slug })
+      .populate("owner", "name email role profileImage")
+      .populate("negocios", "name category location images")
+      .populate("eventos", "title startDate endDate imagenDestacada");
+
+    if (!community) {
+      return res.status(404).json({ msg: "Comunidad no encontrada." });
+    }
+
+    res.status(200).json({ community });
+  } catch (error) {
+    console.error("❌ Error al obtener comunidad por slug:", error);
+    res.status(500).json({ msg: "Error al buscar comunidad por slug." });
   }
 };

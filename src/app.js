@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 // import session from "express-session";
 // import passport from "passport";
-import "./config/passport.js"; // Tu estrategia Google
+//import "./config/passport.js"; // Tu estrategia Google
 
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";

@@ -103,4 +103,28 @@ router.delete(
   deleteBusiness
 );
 
+// GET /api/businesses/search?q=nombre
+router.get("/businesses/search", authMiddleware, async (req, res) => {
+  const q = req.query.q;
+
+  if (!q || q.length < 2) {
+    return res
+      .status(400)
+      .json({ msg: "Se requiere una búsqueda de al menos 2 caracteres" });
+  }
+
+  try {
+    const resultados = await Business.find({
+      name: { $regex: q, $options: "i" },
+    })
+      .limit(10)
+      .select("name _id");
+
+    res.status(200).json(resultados);
+  } catch (error) {
+    console.error("Error en búsqueda de negocios:", error);
+    res.status(500).json({ msg: "Error al buscar negocios" });
+  }
+});
+
 export default router;

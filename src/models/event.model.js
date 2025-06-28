@@ -1,73 +1,84 @@
 import mongoose from "mongoose";
 
-const eventSchema = new mongoose.Schema(
-  {
-    title: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    description: {
-      type: String,
-      required: true,
-    },
-    date: {
-      type: Date,
-      required: true,
-    },
-    time: {
-      type: String,
-      required: true, // ⏰ agregado según el mock (hora del evento)
-    },
-    location: {
-      type: String,
-      required: true,
-    },
-    featuredImage: {
-      type: String,
-      default: "",
-    },
-    tags: [String],
+// ✅ Primero: subesquema separado
+const locationSchema = new mongoose.Schema({
+  address: { type: String, required: true },
+  city: { type: String, required: true },
+  state: { type: String, required: true },
+  zipCode: { type: String, default: "" },
+  country: { type: String, default: "USA" },
+  coordinates: {
+    lat: { type: Number },
+    lng: { type: Number },
+  },
+});
 
-    // Relacionado con comunidades
-    communities: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Community",
-      },
-    ],
+// ✅ Luego el schema principal
+const eventSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  description: { type: String, required: true },
+  date: { type: String, required: true },
+  time: { type: String, required: true },
 
-    // Relacionado con negocios asociados al evento
-    businesses: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Business",
-      },
-    ],
+  // ✅ Correcta inclusión del subesquema
+  location: { type: locationSchema, required: false },
 
-    // Relacionado con categorías del evento
-    categories: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
-      },
-    ],
+  featuredImage: { type: String, default: "/placeholder-evento.jpg" },
+  images: [String],
+  tags: [String],
+  language: { type: String, default: "es" },
+  price: { type: Number, default: 0 },
+  isFree: { type: Boolean, default: true },
+  registrationLink: {
+    type: String,
+    set: (val) => (val === "" ? undefined : val),
+  },
+  isOnline: { type: Boolean, default: false },
+  virtualLink: {
+    type: String,
+    set: (val) => (val === "" ? undefined : val),
+  },
 
-    // Organizador dinámico (puede ser User o Business)
-    organizer: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: true,
-      refPath: "organizerModel",
-    },
-    organizerModel: {
-      type: String,
-      required: true,
-      enum: ["User", "Business"],
+  communities: [{ type: mongoose.Schema.Types.ObjectId, ref: "Community" }],
+  businesses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Business" }],
+  categories: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
+
+  organizer: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    refPath: "organizerModel",
+  },
+  organizerModel: {
+    type: String,
+    required: true,
+    enum: ["User", "Business"],
+  },
+  sponsors: [{ type: mongoose.Schema.Types.ObjectId, ref: "Business" }],
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: function () {
+      return this.isNew;
     },
   },
-  {
-    timestamps: true, // Agrega createdAt y updatedAt
-  }
-);
+  createdAt: { type: Date, default: Date.now },
+  isPublished: { type: Boolean, default: false },
+  featured: { type: Boolean, default: false },
+  status: {
+    type: String,
+    enum: ["activo", "finalizado", "cancelado"],
+    default: "activo",
+  },
+
+  feedback: [
+    {
+      user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      rating: { type: Number, min: 1, max: 5 },
+      comment: String,
+      createdAt: { type: Date, default: Date.now },
+    },
+  ],
+});
 
 export default mongoose.model("Event", eventSchema);
