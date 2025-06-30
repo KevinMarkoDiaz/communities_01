@@ -1,11 +1,22 @@
 import dotenv from "dotenv";
-dotenv.config(); // 🟢 PRIMERO, antes de cualquier otro import
+dotenv.config(); // 🟢 Cargar variables antes de todo
 
 import app from "./app.js";
 import { connectDB } from "./db.js";
 
 const PORT = process.env.PORT || 3000;
 
-connectDB();
+(async () => {
+  try {
+    console.log("🌱 Iniciando conexión a MongoDB...");
+    await connectDB();
+    console.log("✅ Conexión a MongoDB exitosa.");
 
-app.listen(PORT, () => {});
+    app.listen(PORT, () => {
+      console.log(`🚀 Servidor escuchando en puerto ${PORT}`);
+    });
+  } catch (error) {
+    console.error("❌ Error al conectar con MongoDB:", error);
+    process.exit(1); // Finalizar proceso si falla la conexión
+  }
+})();
