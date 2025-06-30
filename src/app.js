@@ -59,9 +59,33 @@ app.use(cookieParser());
 //   })
 // );
 
+//para local
+// app.use(
+//   cors({
+//     origin: process.env.FRONTEND_URL,
+//     credentials: true,
+//   })
+// );
+
+// para dev y prod
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://communidades.com",
+  "https://www.communidades.com",
+  "https://dev.communidades.com",
+];
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
+    origin: function (origin, callback) {
+      // Permitir peticiones sin Origin (por ejemplo, Postman)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS: " + origin));
+      }
+    },
     credentials: true,
   })
 );
