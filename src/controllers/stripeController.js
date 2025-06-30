@@ -53,14 +53,12 @@ export const stripeWebhookHandler = async (req, res) => {
 
   switch (event.type) {
     case "checkout.session.completed":
-      console.log("✅ Checkout completado:", data.id);
       try {
         const user = await User.findOne({ email: data.customer_email });
         if (user) {
           user.role = "premium";
           user.subscriptionId = data.subscription;
           await user.save();
-          console.log("🎉 Usuario actualizado a Premium");
         }
       } catch (err) {
         console.error("⚠️ Error actualizando usuario:", err);
@@ -68,7 +66,6 @@ export const stripeWebhookHandler = async (req, res) => {
       break;
 
     case "invoice.paid":
-      console.log("💸 Factura pagada:", data.id);
       // Podrías guardar el historial de pagos aquí si querés
       break;
 
@@ -77,7 +74,6 @@ export const stripeWebhookHandler = async (req, res) => {
       try {
         const user = await User.findOne({ subscriptionId: data.subscription });
         if (user) {
-          console.log("🔔 Avisar al usuario:", user.email);
         }
       } catch (err) {
         console.error("⚠️ Error localizando usuario con pago fallido:", err);
@@ -85,12 +81,10 @@ export const stripeWebhookHandler = async (req, res) => {
       break;
 
     case "customer.subscription.updated":
-      console.log("🔄 Subscripción actualizada:", data.id);
       try {
         const user = await User.findOne({ subscriptionId: data.id });
         if (user) {
           // Aquí podés actualizar info adicional si usás distintos planes
-          console.log(`📌 Subscripción de ${user.email} fue actualizada.`);
         }
       } catch (err) {
         console.error("⚠️ Error actualizando subscripción:", err);
@@ -98,14 +92,12 @@ export const stripeWebhookHandler = async (req, res) => {
       break;
 
     case "customer.subscription.deleted":
-      console.log("🚫 Subscripción cancelada:", data.id);
       try {
         const user = await User.findOne({ subscriptionId: data.id });
         if (user) {
           user.role = "user";
           user.subscriptionId = null;
           await user.save();
-          console.log("🔄 Usuario volvió a rol básico");
         }
       } catch (err) {
         console.error("⚠️ Error al revertir subscripción:", err);
@@ -113,7 +105,6 @@ export const stripeWebhookHandler = async (req, res) => {
       break;
 
     default:
-      console.log(`📌 Evento no manejado: ${event.type}`);
   }
 
   res.json({ received: true });

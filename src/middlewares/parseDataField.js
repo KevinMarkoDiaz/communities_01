@@ -6,7 +6,6 @@ export function parseDataField(req, res, next) {
         ...req.body,
         ...parsedData,
       };
-      console.log("✅ Data parseada:", parsedData);
     }
     next();
   } catch (err) {

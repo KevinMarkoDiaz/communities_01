@@ -1,6 +1,4 @@
 export const validateBody = (schema) => (req, res, next) => {
-  console.log("🧪 Body antes de validar:", req.body);
-
   try {
     let inputData;
 

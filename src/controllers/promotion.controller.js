@@ -42,13 +42,9 @@ export const getPromotions = async (req, res) => {
  */
 export const createPromotion = async (req, res) => {
   try {
-    console.log("🔹 BODY recibido:", req.body);
-    console.log("🔹 Usuario autenticado:", req.user);
-
     const data = req.body;
     const parsed = promotionSchema.safeParse(data);
     if (!parsed.success) {
-      console.log("❌ Error de validación Zod:", parsed.error.flatten());
       return zodErrorToResponse(res, parsed.error);
     }
 
@@ -135,8 +131,6 @@ export const updatePromotion = async (req, res) => {
     }
 
     await promo.save();
-
-    console.log("🟢 Promoción actualizada:", promo._id);
     res.json({ msg: "Promoción actualizada", promotion: promo });
   } catch (error) {
     console.error("🛑 Error en updatePromotion:", error);
@@ -164,7 +158,6 @@ export const deletePromotion = async (req, res) => {
     }
 
     await promo.deleteOne();
-    console.log("🗑️ Promoción eliminada:", id);
     res.json({ msg: "Promoción eliminada" });
   } catch (error) {
     console.error("🛑 Error en deletePromotion:", error);

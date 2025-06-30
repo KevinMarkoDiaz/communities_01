@@ -330,9 +330,6 @@ export const getPromotionsByBusiness = async (req, res) => {
     if (!negocio) {
       return res.status(404).json({ msg: "Negocio no encontrado" });
     }
-
-    console.log("🔎 Promociones del negocio:", negocio.promotions);
-
     res.json({ promotions: negocio.promotions });
   } catch (error) {
     console.error("❌ Error al obtener promociones del negocio:", error);

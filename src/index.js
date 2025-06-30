@@ -8,6 +8,4 @@ const PORT = process.env.PORT || 3000;
 
 connectDB();
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server on port #${PORT}`);
-});
+app.listen(PORT, () => {});

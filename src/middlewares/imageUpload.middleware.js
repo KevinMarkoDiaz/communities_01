@@ -40,7 +40,6 @@ export const uploaderMiddleware = upload.fields([
 
 // Procesamiento de imágenes para negocios y perfiles
 export const imageProcessor = async (req, res, next) => {
-  console.log("📦 Archivos recibidos por Multer:", req.files);
   console.log("🔑 Cloudinary config:", {
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY?.slice(0, 4) + "***",
@@ -51,14 +50,12 @@ export const imageProcessor = async (req, res, next) => {
     // Imagen destacada del negocio
     if (files?.featuredImage?.[0]) {
       try {
-        console.log("⬆️ Subiendo imagen destacada a Cloudinary...");
         const result = await cloudinary.uploader.upload(
           files.featuredImage[0].path,
           {
             folder: "negocios",
           }
         );
-        console.log("✅ Imagen destacada subida:", result.secure_url);
         req.body.featuredImage = result.secure_url;
         await fsp.unlink(files.featuredImage[0].path);
       } catch (err) {
@@ -81,14 +78,12 @@ export const imageProcessor = async (req, res, next) => {
 
     // Galería de imágenes del negocio
     if (files?.images?.length > 0) {
-      console.log(`📸 Subiendo ${files.images.length} imágenes de galería...`);
       const uploads = await Promise.all(
         files.images.map(async (file) => {
           try {
             const result = await cloudinary.uploader.upload(file.path, {
               folder: "negocios/galeria",
             });
-            console.log("✅ Imagen galería subida:", result.secure_url);
             await fsp.unlink(file.path);
             return result.secure_url;
           } catch (err) {
@@ -124,7 +119,6 @@ export const handleProfileImage = async (req, res, next) => {
       // ✅ Eliminar archivo local
       try {
         await fsp.unlink(req.file.path);
-        console.log("🧹 Imagen eliminada correctamente");
       } catch (unlinkErr) {
         console.error("⚠️ Error eliminando imagen:", unlinkErr);
       }
