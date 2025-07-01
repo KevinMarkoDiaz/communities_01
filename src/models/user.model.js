@@ -12,9 +12,12 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin", "business_owner"],
       default: "user",
     },
-
+    isPremium: {
+      type: Boolean,
+      default: false,
+    },
     // Info del formulario de perfil
-    title: { type: String, trim: true },           // Ej: "Chef venezolano", "Dueño de tienda"
+    title: { type: String, trim: true }, // Ej: "Chef venezolano", "Dueño de tienda"
     description: { type: String, maxlength: 1000 }, // Bio o resumen
     profileImage: { type: String, default: "" },
     location: { type: String },

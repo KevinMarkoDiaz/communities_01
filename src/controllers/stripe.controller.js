@@ -66,9 +66,11 @@ export const stripeWebhookHandler = async (req, res) => {
 
         if (user) {
           console.log("✅ Usuario encontrado:", user.email);
-          user.role = "premium";
+          user.isPremium = true;
           user.subscriptionId = data.subscription;
           await user.save();
+          console.log("🌟 Usuario marcado como premium");
+
           console.log("🌟 Usuario actualizado a premium");
         } else {
           console.log("⚠️ No se encontró ningún usuario con ese ID");
@@ -112,11 +114,11 @@ export const stripeWebhookHandler = async (req, res) => {
       try {
         const user = await User.findOne({ subscriptionId: data.id });
         if (user) {
-          user.role = "user";
+          user.isPremium = false;
           user.subscriptionId = null;
           await user.save();
           console.log(
-            `👤 Subscripción cancelada, rol revertido para ${user.email}`
+            `👤 Subscripción cancelada, premium desactivado para ${user.email}`
           );
         }
       } catch (err) {
