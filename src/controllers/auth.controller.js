@@ -129,15 +129,18 @@ export const getUserProfile = async (req, res) => {
     }
 
     res.status(200).json({
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      profileImage: user.profileImage,
-      isVerified: user.isVerified,
-      community: user.community,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
+      user: {
+        // 👈 importante: encapsular en 'user'
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        profileImage: user.profileImage,
+        isVerified: user.isVerified,
+        community: user.community,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
     });
   } catch (error) {
     console.error("Error al obtener perfil:", error);
