@@ -39,6 +39,7 @@ export const createCheckoutSession = async (req, res) => {
 };
 
 // ✅ Webhook que maneja eventos enviados por Stripe
+
 export const stripeWebhookHandler = async (req, res) => {
   const sig = req.headers["stripe-signature"];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -46,7 +47,8 @@ export const stripeWebhookHandler = async (req, res) => {
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+    // 🚨 Aquí usas req.body directamente (Buffer crudo)
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
   } catch (err) {
     console.error("❌ Error verificando firma del webhook:", err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -77,7 +79,7 @@ export const stripeWebhookHandler = async (req, res) => {
       break;
 
     case "invoice.paid":
-      // Aquí podrías registrar el pago si quieres
+      console.log("💰 Factura pagada:", data.id);
       break;
 
     case "invoice.payment_failed":

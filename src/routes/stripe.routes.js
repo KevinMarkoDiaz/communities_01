@@ -4,7 +4,7 @@ import { authMiddleware } from "../middlewares/validateToken.js";
 import {
   createCheckoutSession,
   stripeWebhookHandler,
-} from "../controllers/stripeController.js";
+} from "../controllers/stripe.controller.js";
 
 const router = express.Router();
 
