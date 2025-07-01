@@ -14,6 +14,14 @@ export const createCheckoutSession = async (req, res) => {
   try {
     const user = req.user;
 
+    // ✅ Tomar FRONTEND_URL del entorno
+    const rawFrontendUrl = process.env.FRONTEND_URL;
+
+    // ✅ Quitar "/" final si existe
+    const frontendUrl = rawFrontendUrl.endsWith("/")
+      ? rawFrontendUrl.slice(0, -1)
+      : rawFrontendUrl;
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "subscription",
@@ -25,10 +33,10 @@ export const createCheckoutSession = async (req, res) => {
       ],
       customer_email: user.email,
       metadata: {
-        userId: user._id.toString(), // ✅ Aquí vinculamos el ID
+        userId: user._id.toString(),
       },
-      success_url: `${process.env.FRONTEND_URL}/suscripcion-exitosa`,
-      cancel_url: `${process.env.FRONTEND_URL}/suscripcion-cancelada`,
+      success_url: `${frontendUrl}/suscripcion-exitosa`,
+      cancel_url: `${frontendUrl}/suscripcion-cancelada`,
     });
 
     res.json({ url: session.url });
