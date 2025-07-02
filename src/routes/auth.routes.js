@@ -22,6 +22,7 @@ import {
 
 import { updateUser } from "../controllers/user.controller.js";
 import { createAccessToken } from "../libs/jwt.js";
+import { setAuthCookie } from "../utils/setAuthCookie.js";
 
 const router = Router();
 
