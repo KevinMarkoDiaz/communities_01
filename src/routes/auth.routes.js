@@ -78,20 +78,20 @@ router.get(
     session: false,
     failureRedirect: "/login",
   }),
-  (req, res) => {
-    // Aquí req.user ya existe gracias a la estrategia
-    const token = jwt.sign(
-      { id: req.user._id, email: req.user.email, role: req.user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+  async (req, res) => {
+    // Generar token
+    const payload = { user: { id: req.user._id, role: req.user.role } };
+    const token = await createAccessToken(payload);
 
-    // Devuelve un HTML que hace postMessage al opener
+    // Setear cookie HttpOnly
+    setAuthCookie(res, token);
+
+    // Enviar notificación al frontend
     res.send(`
       <html>
         <head>
           <script>
-            window.opener.postMessage(${JSON.stringify(token)}, "*");
+            window.opener.postMessage("success", "*");
             window.close();
           </script>
         </head>
