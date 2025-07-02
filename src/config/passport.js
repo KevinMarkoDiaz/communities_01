@@ -14,26 +14,49 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
+        console.log("Google profile:", JSON.stringify(profile, null, 2));
+
         // Buscar usuario existente por googleId
         let user = await User.findOne({ googleId: profile.id });
 
-        // Si no existe, crearlo
         if (!user) {
-          user = new User({
-            googleId: profile.id,
-            name: profile.displayName,
-            email: profile.emails?.[0]?.value, // Puede no venir
-            profileImage: profile.photos?.[0]?.value,
-            isVerified: true, // Opcional: marcar como verificado si llega de Google
-            role: "user",
-          });
-          await user.save();
+          // Si no existe con googleId, buscar por email
+          const email = profile.emails?.[0]?.value;
+
+          if (!email) {
+            return done(
+              new Error("El perfil de Google no contiene email."),
+              null
+            );
+          }
+
+          user = await User.findOne({ email });
+
+          if (user) {
+            // Si ya existe por email, asignar googleId
+            user.googleId = profile.id;
+            // Opcional: actualizar datos si quieres mantenerlos al día
+            user.name = profile.displayName || user.name;
+            user.profileImage = profile.photos?.[0]?.value || user.profileImage;
+            user.isVerified = true;
+            await user.save();
+          } else {
+            // Si no existe, crear usuario nuevo
+            user = new User({
+              googleId: profile.id,
+              name: profile.displayName || "Sin Nombre",
+              email: email,
+              profileImage: profile.photos?.[0]?.value || "",
+              isVerified: true,
+              role: "user",
+            });
+            await user.save();
+          }
         } else {
-          // Actualizar datos si cambian (por ejemplo nombre o imagen)
-          user.name = profile.displayName;
-          if (profile.emails?.[0]?.value) user.email = profile.emails[0].value;
-          if (profile.photos?.[0]?.value)
-            user.profileImage = profile.photos[0].value;
+          // Actualizar datos si cambian
+          user.name = profile.displayName || user.name;
+          user.profileImage = profile.photos?.[0]?.value || user.profileImage;
+          user.isVerified = true;
           await user.save();
         }
 
