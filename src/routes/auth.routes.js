@@ -1,7 +1,6 @@
 import { Router } from "express";
 import passport from "passport";
 
-import jwt from "jsonwebtoken";
 import {
   registerUser,
   loginUser,
@@ -22,6 +21,7 @@ import {
 } from "../middlewares/imageUpload.middleware.js";
 
 import { updateUser } from "../controllers/user.controller.js";
+import { createAccessToken } from "../libs/jwt.js";
 
 const router = Router();
 
