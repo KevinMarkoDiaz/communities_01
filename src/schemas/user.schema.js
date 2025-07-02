@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+// ✅ Registro manual
 export const userSchema = z.object({
   name: z
     .string()
@@ -30,7 +31,9 @@ export const userSchema = z.object({
       }),
     })
     .default("user"),
+
   isPremium: z.boolean().default(false),
+
   title: z
     .string()
     .max(100, { message: "El título no puede exceder 100 caracteres" })
@@ -76,4 +79,23 @@ export const userSchema = z.object({
       message: "updatedAt debe ser una fecha ISO válida",
     })
     .optional(),
+});
+
+// ✅ Creación de usuario vía Google
+export const googleUserSchema = z.object({
+  name: z
+    .string()
+    .min(1, { message: "El nombre es obligatorio" })
+    .max(100)
+    .trim(),
+
+  email: z.string().email().max(255).trim().optional(), // A veces Google no provee email
+
+  googleId: z.string().min(1, { message: "El googleId es obligatorio" }),
+
+  profileImage: z.string().url().optional(),
+
+  role: z.enum(["user", "admin", "business_owner"]).default("user"),
+
+  isVerified: z.boolean().optional(),
 });

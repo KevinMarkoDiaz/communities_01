@@ -2,9 +2,11 @@ import express from "express";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-// import session from "express-session";
-// import passport from "passport";
-// import "./config/passport.js"; // Tu estrategia Google
+import passport from "passport";
+import dotenv from "dotenv";
+dotenv.config();
+
+import "./config/passport.js"; // Tu estrategia Google
 
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
@@ -22,7 +24,7 @@ const app = express();
 app.use(morgan("dev"));
 app.use(cookieParser());
 
-// Para dev y prod
+// 🌐 CORS (ajusta allowedOrigins si agregas más entornos)
 const allowedOrigins = [
   "http://localhost:5173",
   "https://communidades.com",
@@ -43,11 +45,10 @@ app.use(
   })
 );
 
-/**
- * 🚨 Esta lógica es la CLAVE:
- * - NO aplicar express.json() al webhook
- * - Sí aplicarlo a todo lo demás
- */
+// 🔑 Inicializar Passport
+app.use(passport.initialize());
+
+// 🚨 Stripe: No aplicar express.json() a webhook
 app.use((req, res, next) => {
   if (req.originalUrl === "/api/stripe/webhook") {
     next();
@@ -56,10 +57,7 @@ app.use((req, res, next) => {
   }
 });
 
-/**
- * 🚀 Aquí montas las rutas
- * ⚠️ stripeRoutes debe venir DESPUÉS del bloque anterior
- */
+// 🚀 Tus rutas
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/stripe", stripeRoutes);

@@ -112,6 +112,7 @@ export const logoutUser = (req, res) => {
     httpOnly: true,
     secure: true,
     sameSite: "None",
+    domain: ".communidades.com",
   });
 
   res.status(200).json({ message: "Sesión cerrada correctamente" });

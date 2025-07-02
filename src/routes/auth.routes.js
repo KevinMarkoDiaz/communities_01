@@ -1,6 +1,7 @@
 import { Router } from "express";
 import passport from "passport";
 
+import jwt from "jsonwebtoken";
 import {
   registerUser,
   loginUser,
@@ -30,14 +31,24 @@ router.post("/register", validateBody(userSchema), registerUser);
 // 🔐 Login con validación Zod
 router.post("/login", validateBody(loginSchema), loginUser);
 
-// 🚪 Logout
+// 🚪 Logout (Passport + tu lógica)
+
 router.post("/logout", logoutUser);
 
-// 👤 Perfil del usuario autenticado
+// 👤 Perfil del usuario autenticado con tu JWT
 router.get("/profile", authMiddleware, getUserProfile);
 
-// 🧑 Datos del usuario actual
+// 🧑 Datos del usuario actual con tu JWT
 router.get("/me", authMiddleware, getCurrentUser);
+
+// 🟢 Estado de sesión (Passport)
+router.get("/status", (req, res) => {
+  if (req.isAuthenticated()) {
+    res.json({ authenticated: true, user: req.user });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
 
 // ✏️ Actualizar perfil
 router.put(
@@ -53,19 +64,60 @@ router.put(
 // ✅ Rutas para autenticación con Google
 //
 
-// Iniciar el flujo con Google (redirige a Google)
+// Iniciar flujo con Google
 router.get(
   "/google",
   passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
-// Ruta de retorno (callback) desde Google
+// Callback desde Google
+
 router.get(
   "/google/callback",
   passport.authenticate("google", {
-    successRedirect: "http://localhost:5173/dashboard", // cambialo por tu URL de frontend
+    session: false,
     failureRedirect: "/login",
-  })
+  }),
+  (req, res) => {
+    // Aquí req.user ya existe gracias a la estrategia
+    const token = jwt.sign(
+      { id: req.user._id, email: req.user.email, role: req.user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // Devuelve un HTML que hace postMessage al opener
+    res.send(`
+      <html>
+        <head>
+          <script>
+            window.opener.postMessage(${JSON.stringify(token)}, "*");
+            window.close();
+          </script>
+        </head>
+        <body>
+          <p>Autenticación correcta. Puedes cerrar esta ventana.</p>
+        </body>
+      </html>
+    `);
+  }
 );
+
+// Fallback de error
+router.get("/google/failure", (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <script>
+          window.opener.postMessage("failure", "*");
+          window.close();
+        </script>
+      </head>
+      <body>
+        <p>Ocurrió un error al iniciar sesión con Google.</p>
+      </body>
+    </html>
+  `);
+});
 
 export default router;

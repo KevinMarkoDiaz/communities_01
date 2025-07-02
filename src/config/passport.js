@@ -14,29 +14,49 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        const user = await User.findOneAndUpdate(
-          { googleId: profile.id },
-          {
+        // Buscar usuario existente por googleId
+        let user = await User.findOne({ googleId: profile.id });
+
+        // Si no existe, crearlo
+        if (!user) {
+          user = new User({
             googleId: profile.id,
             name: profile.displayName,
-            email: profile.emails[0].value,
-            profileImage: profile.photos[0].value,
-          },
-          { upsert: true, new: true }
-        );
+            email: profile.emails?.[0]?.value, // Puede no venir
+            profileImage: profile.photos?.[0]?.value,
+            isVerified: true, // Opcional: marcar como verificado si llega de Google
+            role: "user",
+          });
+          await user.save();
+        } else {
+          // Actualizar datos si cambian (por ejemplo nombre o imagen)
+          user.name = profile.displayName;
+          if (profile.emails?.[0]?.value) user.email = profile.emails[0].value;
+          if (profile.photos?.[0]?.value)
+            user.profileImage = profile.photos[0].value;
+          await user.save();
+        }
+
         return done(null, user);
       } catch (err) {
+        console.error("Error en estrategia Google:", err);
         return done(err, null);
       }
     }
   )
 );
 
+// Serializa usuario a la sesión
 passport.serializeUser((user, done) => {
   done(null, user.id);
 });
 
+// Deserializa usuario de la sesión
 passport.deserializeUser(async (id, done) => {
-  const user = await User.findById(id);
-  done(null, user);
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (err) {
+    done(err, null);
+  }
 });

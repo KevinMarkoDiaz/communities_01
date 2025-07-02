@@ -2,11 +2,11 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true },
+    name: { type: String, trim: true },
     lastName: { type: String, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true },
-    password: { type: String, required: true },
-
+    email: { type: String, lowercase: true, unique: true, sparse: true },
+    password: { type: String },
+    googleId: { type: String, unique: true, sparse: true },
     role: {
       type: String,
       enum: ["user", "admin", "business_owner"],
@@ -17,8 +17,8 @@ const userSchema = new mongoose.Schema(
       default: false,
     },
     // Info del formulario de perfil
-    title: { type: String, trim: true }, // Ej: "Chef venezolano", "Dueño de tienda"
-    description: { type: String, maxlength: 1000 }, // Bio o resumen
+    title: { type: String, trim: true },
+    description: { type: String, maxlength: 1000 },
     profileImage: { type: String, default: "" },
     location: { type: String },
     country: { type: String },
@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema(
       ref: "Community",
     },
 
-    // Relaciones dinámicas (para usar con populate)
+    // Relaciones dinámicas
     businesses: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -58,8 +58,10 @@ const userSchema = new mongoose.Schema(
     isVerified: { type: Boolean, default: false },
   },
   {
-    timestamps: true, // incluye createdAt y updatedAt automáticamente
+    timestamps: true,
   }
 );
+
+// Puedes añadir métodos de comparación de contraseñas si usas login local
 
 export default mongoose.model("User", userSchema);
