@@ -18,6 +18,8 @@ import uploadRoutes from "./routes/upload.routes.js";
 import stripeRoutes from "./routes/stripe.routes.js";
 import searchRoutes from "./routes/search.routes.js";
 import promotionRoutes from "./routes/promotion.routes.js";
+import notificationRoutes from "./routes/notification.routes.js";
+import followRoutes from "./routes/follow.routes.js";
 
 const app = express();
 
@@ -68,5 +70,7 @@ app.use("/api", businessRoutes);
 app.use("/api", categoryRoutes);
 app.use("/api", eventRoutes);
 app.use("/api", uploadRoutes);
-
+app.use("/api", notificationRoutes);
+app.use("/api/follow", followRoutes);
+app.use("/api/users", followRoutes); //
 export default app;
