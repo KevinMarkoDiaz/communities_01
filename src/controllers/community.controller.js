@@ -1,18 +1,11 @@
 import slugify from "slugify";
-import { validationResult } from "express-validator";
 import Community from "../models/community.model.js";
 
 /**
  * Crea una nueva comunidad.
- * Solo los administradores o propietarios de negocios pueden crear comunidades.
  */
 export const createCommunity = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
     if (!["admin", "business_owner"].includes(req.user.role)) {
       return res
         .status(403)
@@ -79,8 +72,8 @@ export const createCommunity = async (req, res) => {
       community: newCommunity,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ msg: "Error en la creación de la comunidad." });
+    console.error("❌ Error al crear comunidad:", error);
+    res.status(500).json({ msg: "Error al crear la comunidad." });
   }
 };
 
@@ -92,13 +85,13 @@ export const getAllCommunities = async (req, res) => {
     const communities = await Community.find().populate("owner", "name email");
     res.status(200).json({ communities });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ msg: "Error al obtener las comunidades." });
+    console.error("❌ Error al obtener comunidades:", error);
+    res.status(500).json({ msg: "Error al obtener comunidades." });
   }
 };
 
 /**
- * Obtiene una comunidad específica por su ID.
+ * Obtiene una comunidad por ID.
  */
 export const getCommunityById = async (req, res) => {
   try {
@@ -113,21 +106,16 @@ export const getCommunityById = async (req, res) => {
 
     res.status(200).json({ community });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error al obtener comunidad:", error);
     res.status(500).json({ msg: "Error al obtener la comunidad." });
   }
 };
 
 /**
- * Actualiza una comunidad específica.
+ * Actualiza una comunidad.
  */
 export const updateCommunity = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
     const data = req.body.data ? JSON.parse(req.body.data) : req.body;
     const { name } = data;
 
@@ -135,6 +123,7 @@ export const updateCommunity = async (req, res) => {
     if (!community && typeof req.params.id === "string") {
       community = await Community.findOne({ slug: req.params.id });
     }
+
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
@@ -159,7 +148,6 @@ export const updateCommunity = async (req, res) => {
       community.slug = slugify(name, { lower: true, strict: true });
     }
 
-    // Actualizar campos si están presentes
     const camposActualizables = [
       "description",
       "flagImage",
@@ -188,9 +176,33 @@ export const updateCommunity = async (req, res) => {
 
     await community.save();
 
-    res
-      .status(200)
-      .json({ msg: "Comunidad actualizada exitosamente.", community });
+    // 🎯 Crear notificaciones a seguidores de la comunidad
+    const followers = await Follow.find({
+      entityType: "community",
+      entityId: community._id,
+    });
+
+    if (followers.length > 0) {
+      const notifications = followers.map((f) => ({
+        user: f.user,
+        actionType: "community_updated",
+        entityType: "community",
+        entityId: community._id,
+        message: `La comunidad "${community.name}" ha actualizado su información.`,
+        link: `/comunidades/${community.slug}`,
+        read: false,
+      }));
+
+      await Notification.insertMany(notifications);
+      console.log(
+        `📢 Notificaciones creadas para ${followers.length} seguidores.`
+      );
+    }
+
+    res.status(200).json({
+      msg: "Comunidad actualizada exitosamente.",
+      community,
+    });
   } catch (error) {
     console.error("❌ Error al actualizar comunidad:", error);
     res.status(500).json({ msg: "Error al actualizar la comunidad." });
@@ -217,9 +229,10 @@ export const deleteCommunity = async (req, res) => {
     }
 
     await community.deleteOne();
+
     res.status(200).json({ msg: "Comunidad eliminada exitosamente." });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error al eliminar comunidad:", error);
     res.status(500).json({ msg: "Error al eliminar la comunidad." });
   }
 };
@@ -233,14 +246,13 @@ export const getMyCommunities = async (req, res) => {
     const communities = await Community.find(query);
     res.status(200).json({ communities });
   } catch (error) {
-    console.error("Error al obtener comunidades del usuario:", error);
+    console.error("❌ Error al obtener comunidades del usuario:", error);
     res.status(500).json({ msg: "Error al obtener comunidades." });
   }
 };
 
 /**
- * Obtiene una comunidad pública a través del `slug`.
- * Incluye negocios, eventos y datos del owner.
+ * Obtiene una comunidad pública a través del slug.
  */
 export const getCommunityBySlug = async (req, res) => {
   try {

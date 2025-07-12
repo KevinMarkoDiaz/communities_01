@@ -1,7 +1,10 @@
-import { validationResult } from "express-validator"; // Omitir si usás Zod
+// controllers/business.controller.js
 import Business from "../models/business.model.js";
 import Community from "../models/community.model.js";
-import { geocodeAddress } from "../utils/geocode.js"; // al inicio
+import Notification from "../models/Notification.model.js";
+import Follow from "../models/follow.model.js";
+import { geocodeAddress } from "../utils/geocode.js";
+
 /**
  * Crear un nuevo negocio
  */
@@ -13,7 +16,6 @@ export const createBusiness = async (req, res) => {
         .json({ msg: "No tienes permisos para crear un negocio." });
     }
 
-    // 🔍 Parsear campos que vienen como string JSON desde FormData
     let {
       name,
       description,
@@ -44,7 +46,6 @@ export const createBusiness = async (req, res) => {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    // 🧭 Obtener coordenadas desde dirección
     const fullAddress = `${location.address}, ${location.city}, ${
       location.state
     }, ${location.country || "USA"}`;
@@ -55,7 +56,6 @@ export const createBusiness = async (req, res) => {
     const profileImageUrl = req.body.profileImage || "";
     const galleryUrls = req.body.images || [];
 
-    // 🧠 Crear el documento del negocio
     const newBusiness = new Business({
       name,
       description,
@@ -68,7 +68,7 @@ export const createBusiness = async (req, res) => {
       isVerified: isVerified ?? false,
       owner: req.user.id,
       featuredImage: featuredImageUrl,
-      profileImage: profileImageUrl, // 🆕 logo o avatar del negocio
+      profileImage: profileImageUrl,
       images: galleryUrls,
     });
 
@@ -130,13 +130,7 @@ export const getBusinessById = async (req, res) => {
 /**
  * Actualizar un negocio
  */
-
 export const updateBusiness = async (req, res) => {
-  const errors = validationResult(req); // Omitir si usás Zod
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
   let {
     name,
     description,
@@ -150,10 +144,9 @@ export const updateBusiness = async (req, res) => {
     isVerified,
     featuredImage,
     profileImage,
-    owner, // ⚠️ No se debe actualizar
+    owner,
   } = req.body;
 
-  // 🧠 Parsear campos JSON si vienen como strings (por FormData)
   try {
     if (typeof location === "string") location = JSON.parse(location);
     if (typeof contact === "string") contact = JSON.parse(contact);
@@ -168,7 +161,6 @@ export const updateBusiness = async (req, res) => {
       .json({ msg: "Formato inválido en los datos enviados." });
   }
 
-  // 🌍 Si hay nueva dirección, obtener coordenadas
   if (location?.address && location?.city && location?.state) {
     try {
       const fullAddress = `${location.address}, ${location.city}, ${
@@ -204,23 +196,20 @@ export const updateBusiness = async (req, res) => {
         .json({ msg: "No puedes cambiar el propietario del negocio." });
     }
 
-    // ✅ Imagen destacada: nuevo archivo o URL existente
     if (req.files?.featuredImage?.[0]) {
       featuredImage = req.body.featuredImage;
     } else if (req.body.featuredImageUrl) {
       featuredImage = req.body.featuredImageUrl;
     }
 
-    // ✅ Imagen de perfil: nuevo archivo o URL existente
     if (req.files?.profileImage?.[0]) {
       profileImage = req.body.profileImage;
     } else if (req.body.profileImageUrl) {
       profileImage = req.body.profileImageUrl;
     }
 
-    // ✅ Galería: nuevos archivos ya procesados o URLs anteriores
     if (req.files?.images?.length) {
-      // Se mantiene el campo `images` recibido como string o array ya parseado
+      // Si tienes lógica de manejo de galería aquí
     } else if (req.body.existingImages) {
       try {
         images = JSON.parse(req.body.existingImages);
@@ -230,7 +219,7 @@ export const updateBusiness = async (req, res) => {
       }
     }
 
-    // 🛠️ Actualizar campos permitidos
+    // Actualizar campos
     if (name) business.name = name;
     if (description) business.description = description;
     if (category) business.category = category;
@@ -245,6 +234,29 @@ export const updateBusiness = async (req, res) => {
     if (images) business.images = images;
 
     await business.save();
+
+    // ✅ Crear notificaciones a seguidores del negocio
+    const followers = await Follow.find({
+      entityType: "business",
+      entityId: business._id,
+    });
+
+    if (followers.length > 0) {
+      const notifications = followers.map((f) => ({
+        user: f.user,
+        actionType: "business_updated",
+        entityType: "business",
+        entityId: business._id,
+        message: `El negocio "${business.name}" actualizó su información.`,
+        link: `/negocios/${business._id}`,
+        read: false,
+      }));
+
+      await Notification.insertMany(notifications);
+      console.log(
+        `📢 Notificaciones creadas para ${followers.length} seguidores.`
+      );
+    }
 
     const populated = await Business.findById(business._id)
       .populate("category")
@@ -264,7 +276,6 @@ export const updateBusiness = async (req, res) => {
 /**
  * Eliminar un negocio
  */
-
 export const deleteBusiness = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id);
@@ -290,9 +301,8 @@ export const deleteBusiness = async (req, res) => {
 };
 
 /**
- * Obtener todos los negocios creados por el usuario autenticado
+ * Obtener negocios creados por el usuario autenticado
  */
-
 export const getMyBusinesses = async (req, res) => {
   try {
     if (!["admin", "business_owner"].includes(req.user.role)) {

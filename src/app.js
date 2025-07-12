@@ -1,3 +1,4 @@
+// src/app.js
 import express from "express";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
@@ -8,6 +9,7 @@ dotenv.config();
 
 import "./config/passport.js"; // Tu estrategia Google
 
+// Rutas
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import communityRoutes from "./routes/community.routes.js";
@@ -23,34 +25,45 @@ import followRoutes from "./routes/follow.routes.js";
 
 const app = express();
 
+// Logs
 app.use(morgan("dev"));
+
+// Cookies
 app.use(cookieParser());
 
-// 🌐 CORS (ajusta allowedOrigins si agregas más entornos)
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://communidades.com",
-  "https://www.communidades.com",
-  "https://dev.communidades.com",
-];
+// // 🌐 CORS esto no fumciona para local
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://communidades.com",
+//   "https://www.communidades.com",
+//   "https://dev.communidades.com",
+// ];
 
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       if (!origin || allowedOrigins.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS: " + origin));
+//       }
+//     },
+//     credentials: true,
+//   })
+// );
+
+//esto funciona para local
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS: " + origin));
-      }
-    },
+    origin: "http://localhost:5173",
     credentials: true,
   })
 );
 
-// 🔑 Inicializar Passport
+// Passport
 app.use(passport.initialize());
 
-// 🚨 Stripe: No aplicar express.json() a webhook
+// Stripe Webhook
 app.use((req, res, next) => {
   if (req.originalUrl === "/api/stripe/webhook") {
     next();
@@ -59,7 +72,7 @@ app.use((req, res, next) => {
   }
 });
 
-// 🚀 Tus rutas
+// 🚀 Rutas API
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/stripe", stripeRoutes);
@@ -71,6 +84,9 @@ app.use("/api", categoryRoutes);
 app.use("/api", eventRoutes);
 app.use("/api", uploadRoutes);
 app.use("/api", notificationRoutes);
+
+// Rutas Follow
 app.use("/api/follow", followRoutes);
-app.use("/api/users", followRoutes); //
+app.use("/api/users", followRoutes); // Para GET /users/me/following
+
 export default app;

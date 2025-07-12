@@ -1,8 +1,9 @@
 import Event from "../models/event.model.js";
-import User from "../models/user.model.js";
 import Business from "../models/business.model.js";
+import Notification from "../models/Notification.model.js";
+import Follow from "../models/follow.model.js";
 import { geocodeAddress } from "../utils/geocode.js";
-// Crear un nuevo evento
+
 // Crear un nuevo evento
 export const createEvent = async (req, res) => {
   const {
@@ -28,12 +29,11 @@ export const createEvent = async (req, res) => {
     featured = false,
     isPublished = false,
     status = "activo",
-    organizer, // del body
-    organizerModel, // del body
+    organizer,
+    organizerModel,
   } = req.body;
 
   try {
-    // Si es admin, respeta lo que llega del formulario
     const realOrganizer = req.user.role === "admin" ? organizer : req.user.id;
     const realModel =
       req.user.role === "admin"
@@ -41,22 +41,22 @@ export const createEvent = async (req, res) => {
         : req.user.role === "business_owner"
         ? "Business"
         : "User";
+
     const cleanLink = (val) =>
       typeof val === "string" && val.trim() === "" ? undefined : val;
 
     const cleanedRegistrationLink = cleanLink(registrationLink);
     const cleanedVirtualLink = cleanLink(virtualLink);
 
-    // 🌍 Si no es online, obtener coordenadas a partir de location
     let enrichedLocation = location;
     if (!isOnline && location?.address && location?.city && location?.state) {
       const fullAddress = `${location.address}, ${location.city}, ${
         location.state
       }, ${location.country || "USA"}`;
-      const coordinates = await geocodeAddress(fullAddress);
+      const coords = await geocodeAddress(fullAddress);
       enrichedLocation = {
         ...location,
-        coordinates,
+        coordinates: coords,
       };
     }
 
@@ -65,7 +65,7 @@ export const createEvent = async (req, res) => {
       description,
       date,
       time,
-      location,
+      location: enrichedLocation,
       coordinates,
       communities,
       businesses,
@@ -89,6 +89,26 @@ export const createEvent = async (req, res) => {
     });
 
     await newEvent.save();
+
+    // Notificar seguidores de los negocios relacionados
+    if (businesses?.length) {
+      const followers = await Follow.find({
+        entityType: "business",
+        entityId: { $in: businesses },
+      });
+
+      if (followers.length) {
+        const notifications = followers.map((f) => ({
+          user: f.user,
+          message: `Un negocio que sigues publicó un nuevo evento: "${title}".`,
+          link: `/eventos/${newEvent._id}`,
+        }));
+        await Notification.insertMany(notifications);
+        console.log(
+          `📢 Notificaciones creadas para ${followers.length} seguidores.`
+        );
+      }
+    }
 
     res
       .status(201)
@@ -138,7 +158,6 @@ export const getEventById = async (req, res) => {
 };
 
 // Actualizar evento
-
 export const updateEvent = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
@@ -177,7 +196,6 @@ export const updateEvent = async (req, res) => {
       "status",
     ];
 
-    // Si viene un nuevo location, geocodificar
     if (
       req.body.location &&
       typeof req.body.location === "object" &&
@@ -197,7 +215,6 @@ export const updateEvent = async (req, res) => {
       }
     }
 
-    // Normalizar campos vacíos
     ["registrationLink", "virtualLink"].forEach((campo) => {
       if (
         typeof req.body[campo] === "string" &&
@@ -207,7 +224,6 @@ export const updateEvent = async (req, res) => {
       }
     });
 
-    // Aplicar actualización de campos
     for (const campo of camposActualizables) {
       if (req.body[campo] !== undefined) {
         event[campo] = req.body[campo];
@@ -215,6 +231,30 @@ export const updateEvent = async (req, res) => {
     }
 
     await event.save();
+
+    // Notificar seguidores de los negocios relacionados
+    if (event.businesses?.length) {
+      const followers = await Follow.find({
+        entityType: "business",
+        entityId: { $in: event.businesses },
+      });
+
+      if (followers.length) {
+        const notifications = followers.map((f) => ({
+          user: f.user,
+          actionType: "event_updated",
+          entityType: "event",
+          entityId: event._id,
+          message: `Un negocio que sigues actualizó un evento: "${event.title}".`,
+          link: `/eventos/${event._id}`,
+          read: false,
+        }));
+        await Notification.insertMany(notifications);
+        console.log(
+          `📢 Notificaciones creadas para ${followers.length} seguidores.`
+        );
+      }
+    }
 
     res.status(200).json({ msg: "Evento actualizado", event });
   } catch (error) {
@@ -246,7 +286,7 @@ export const deleteEvent = async (req, res) => {
   }
 };
 
-// Obtener eventos creados por el usuario autenticado
+// Obtener eventos del usuario autenticado
 export const getMyEventsController = async (req, res) => {
   try {
     const events = await Event.find({
