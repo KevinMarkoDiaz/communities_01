@@ -86,19 +86,32 @@ const businessSchema = new mongoose.Schema(
 
     openingHours: [horarioSchema],
 
-    // 🔽 NUEVOS CAMPOS DE IMÁGENES
-    featuredImage: { type: String }, // Imagen de banner
-    profileImage: { type: String }, // Imagen de perfil o logo
-    images: [{ type: String }], // Galería opcional
+    featuredImage: { type: String },
+    profileImage: { type: String },
+    images: [{ type: String }],
 
     tags: [String],
     isVerified: { type: Boolean, default: false },
+
+    // ✅ NUEVO: Likes
+    likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+    // ✅ Opcional: feedback embebido si quieres comentarios y rating directo
+    feedback: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        rating: { type: Number, min: 1, max: 5 },
+        comment: String,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   {
     timestamps: true,
   }
 );
 
+// ✅ Virtual de promociones
 businessSchema.virtual("promotions", {
   ref: "Promotion",
   localField: "_id",

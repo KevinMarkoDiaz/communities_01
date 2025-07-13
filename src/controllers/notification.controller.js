@@ -1,4 +1,3 @@
-// src/controllers/notification.controller.js
 import Notification from "../models/Notification.model.js";
 
 /**
@@ -44,5 +43,24 @@ export const markNotificationRead = async (req, res) => {
   } catch (error) {
     console.error("❌ Error al marcar notificación:", error);
     res.status(500).json({ msg: "Error al marcar notificación" });
+  }
+};
+
+/**
+ * Marcar todas las notificaciones como leídas
+ */
+export const markAllNotificationsRead = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    await Notification.updateMany(
+      { user: userId, read: false },
+      { $set: { read: true } }
+    );
+
+    res.json({ message: "Todas las notificaciones marcadas como leídas" });
+  } catch (error) {
+    console.error("❌ Error al marcar todas las notificaciones:", error);
+    res.status(500).json({ msg: "Error al marcar todas las notificaciones" });
   }
 };

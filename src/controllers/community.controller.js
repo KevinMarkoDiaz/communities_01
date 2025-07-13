@@ -1,6 +1,10 @@
 import slugify from "slugify";
+import mongoose from "mongoose";
 import Community from "../models/community.model.js";
-
+import communityViewModel from "../models/communityView.model.js";
+import Follow from "../models/follow.model.js";
+import Rating from "../models/rating.model.js";
+import Comment from "../models/comment.model.js";
 /**
  * Crea una nueva comunidad.
  */
@@ -103,7 +107,12 @@ export const getCommunityById = async (req, res) => {
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
-
+    await communityViewModel.create({
+      community: community._id,
+      viewer: req.user ? req.user._id : null,
+      isAnonymous: !req.user,
+      viewedAt: new Date(),
+    });
     res.status(200).json({ community });
   } catch (error) {
     console.error("❌ Error al obtener comunidad:", error);
@@ -271,5 +280,69 @@ export const getCommunityBySlug = async (req, res) => {
   } catch (error) {
     console.error("❌ Error al obtener comunidad por slug:", error);
     res.status(500).json({ msg: "Error al buscar comunidad por slug." });
+  }
+};
+
+export const getCommunitySummary = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const objectId = new mongoose.Types.ObjectId(id);
+
+    // 1️⃣ Total de seguidores
+    const followersCount = await Follow.countDocuments({
+      entityType: "community",
+      entity: objectId,
+    });
+
+    // 2️⃣ Total de comentarios
+    const commentsCount = await Comment.countDocuments({
+      entityType: "community",
+      entity: objectId,
+    });
+
+    // 3️⃣ Agrupación de ratings por cantidad de estrellas
+    const ratingsAggregation = await Rating.aggregate([
+      {
+        $match: {
+          entityType: "community",
+          entity: objectId,
+        },
+      },
+      {
+        $group: {
+          _id: "$value",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { _id: 1 },
+      },
+    ]);
+
+    // 4️⃣ Promedio de rating
+    const ratingsAll = await Rating.find({
+      entityType: "community",
+      entity: objectId,
+    });
+
+    const averageRating =
+      ratingsAll.length > 0
+        ? (
+            ratingsAll.reduce((acc, r) => acc + r.value, 0) / ratingsAll.length
+          ).toFixed(2)
+        : null;
+
+    res.json({
+      followersCount,
+      commentsCount,
+      ratings: ratingsAggregation,
+      averageRating,
+    });
+  } catch (error) {
+    console.error("❌ Error en getCommunitySummary:", error);
+    res
+      .status(500)
+      .json({ msg: "Error al obtener el resumen de la comunidad" });
   }
 };

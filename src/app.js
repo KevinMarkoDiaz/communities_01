@@ -1,4 +1,3 @@
-// src/app.js
 import express from "express";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
@@ -22,6 +21,16 @@ import searchRoutes from "./routes/search.routes.js";
 import promotionRoutes from "./routes/promotion.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import followRoutes from "./routes/follow.routes.js";
+import ratingRoutes from "./routes/ratings.routes.js";
+
+import communityViewRoutes from "./routes/communityView.routes.js";
+import businessViewRoutes from "./routes/businessView.routes.js";
+import eventViewRoutes from "./routes/eventView.routes.js";
+
+// 🚀 Nuevas rutas de Mensajería
+import conversationRoutes from "./routes/conversation.routes.js";
+import messageRoutes from "./routes/message.routes.js";
+import commentRoutes from "./routes/comments.routes.js";
 
 const app = express();
 
@@ -31,7 +40,7 @@ app.use(morgan("dev"));
 // Cookies
 app.use(cookieParser());
 
-// // 🌐 CORS esto no fumciona para local
+// // 🌐 CORS esto no funciona para local
 // const allowedOrigins = [
 //   "http://localhost:5173",
 //   "https://communidades.com",
@@ -52,7 +61,7 @@ app.use(cookieParser());
 //   })
 // );
 
-//esto funciona para local
+// esto funciona para local
 app.use(
   cors({
     origin: "http://localhost:5173",
@@ -77,16 +86,26 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/stripe", stripeRoutes);
 app.use("/api/busqueda", searchRoutes);
+app.use("/api/businesses", businessRoutes);
+app.use("/api/events", eventRoutes);
+
+app.use("/api/community-views", communityViewRoutes);
+app.use("/api/business-views", businessViewRoutes);
+app.use("/api/event-views", eventViewRoutes);
+
 app.use("/api", promotionRoutes);
 app.use("/api", communityRoutes);
-app.use("/api", businessRoutes);
 app.use("/api", categoryRoutes);
-app.use("/api", eventRoutes);
 app.use("/api", uploadRoutes);
 app.use("/api", notificationRoutes);
 
 // Rutas Follow
 app.use("/api/follow", followRoutes);
 app.use("/api/users", followRoutes); // Para GET /users/me/following
+app.use("/api/ratings", ratingRoutes);
 
+// ✅ Rutas Mensajería
+app.use("/api/conversations", conversationRoutes);
+app.use("/api/messages", messageRoutes);
+app.use("/api/comments", commentRoutes);
 export default app;

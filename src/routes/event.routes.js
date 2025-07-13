@@ -6,6 +6,7 @@ import {
   updateEvent,
   deleteEvent,
   getMyEventsController,
+  toggleLikeEvent,
 } from "../controllers/event.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
@@ -13,7 +14,6 @@ import { hasRole } from "../middlewares/hasRole.js";
 import { validateBody } from "../middlewares/validator.middleware.js";
 import { eventSchema } from "../schemas/event.schema.js";
 import {
-  // para subir a Cloudinary y guardar secure_url
   imageProcessor,
   uploaderMiddleware,
 } from "../middlewares/imageUpload.middleware.js";
@@ -22,9 +22,9 @@ import { addOrganizerFields } from "../middlewares/addOrganizerFields.js";
 
 const router = Router();
 
-// Crear evento con imagen (solo admin o business_owner)
+// Crear evento
 router.post(
-  "/events",
+  "/",
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploaderMiddleware,
@@ -35,23 +35,24 @@ router.post(
   createEvent
 );
 
-// Obtener todos los eventos (público)
-router.get("/events", getAllEvents);
+// Obtener todos los eventos
+router.get("/", getAllEvents);
 
 // Obtener eventos del usuario autenticado
 router.get(
-  "/events/mine",
+  "/mine",
   authMiddleware,
   hasRole("admin", "business_owner"),
   getMyEventsController
 );
 
-// Obtener evento por ID (público)
-router.get("/events/:id", getEventById);
+// Obtener evento por ID
+router.get("/:id", getEventById);
+// Nueva ruta de resumen
 
-// Actualizar evento con imagen
+// Actualizar evento
 router.put(
-  "/events/:id",
+  "/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploaderMiddleware,
@@ -64,10 +65,13 @@ router.put(
 
 // Eliminar evento
 router.delete(
-  "/events/:id",
+  "/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
   deleteEvent
 );
+
+// Like evento
+router.put("/:id/like", authMiddleware, toggleLikeEvent);
 
 export default router;

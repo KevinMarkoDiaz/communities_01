@@ -7,6 +7,7 @@ import {
   deleteBusiness,
   getMyBusinesses,
   getPromotionsByBusiness,
+  toggleLikeBusiness,
 } from "../controllers/business.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
@@ -22,41 +23,41 @@ import { parseDataField } from "../middlewares/parseDataField.js";
 
 const router = Router();
 
-// Crear negocio (solo admin o business_owner)
+// Crear negocio
 router.post(
-  "/businesses",
+  "/",
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploaderMiddleware,
   imageProcessor,
-  parseDataField, // ⬅️ este es el nuevo
+  parseDataField,
   createBusiness
 );
 
 // Obtener todos los negocios
-router.get("/businesses", getAllBusinesses);
+router.get("/", getAllBusinesses);
 
+// Obtener negocios propios
 router.get(
-  "/businesses/mine",
+  "/mine",
   authMiddleware,
   hasRole("admin", "business_owner"),
   getMyBusinesses
 );
 
 // Obtener promociones de un negocio
-router.get("/businesses/:id/promotions", getPromotionsByBusiness);
+router.get("/:id/promotions", getPromotionsByBusiness);
 
 // Obtener negocio por ID
-router.get("/businesses/:id", getBusinessById);
+router.get("/:id", getBusinessById);
 
-// Actualizar negocio (solo owner o admin)
+// Actualizar negocio
 router.put(
-  "/businesses/:id",
+  "/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploaderMiddleware,
   imageProcessor,
-  // ⬇️ Middleware para parsear campos que llegan como string en FormData
   (req, res, next) => {
     try {
       const parseIfString = (field) => {
@@ -95,16 +96,16 @@ router.put(
   updateBusiness
 );
 
-// Eliminar negocio (solo owner o admin)
+// Eliminar negocio
 router.delete(
-  "/businesses/:id",
+  "/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
   deleteBusiness
 );
 
-// GET /api/businesses/search?q=nombre
-router.get("/businesses/search", authMiddleware, async (req, res) => {
+// Buscar negocios
+router.get("/search", authMiddleware, async (req, res) => {
   const q = req.query.q;
 
   if (!q || q.length < 2) {
@@ -126,5 +127,8 @@ router.get("/businesses/search", authMiddleware, async (req, res) => {
     res.status(500).json({ msg: "Error al buscar negocios" });
   }
 });
+
+// Like negocio
+router.put("/:id/like", authMiddleware, toggleLikeBusiness);
 
 export default router;

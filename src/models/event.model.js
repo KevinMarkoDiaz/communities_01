@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-// ✅ Primero: subesquema separado
+// ✅ Subesquema de ubicación
 const locationSchema = new mongoose.Schema({
   address: { type: String, required: true },
   city: { type: String, required: true },
@@ -13,14 +13,13 @@ const locationSchema = new mongoose.Schema({
   },
 });
 
-// ✅ Luego el schema principal
+// ✅ Esquema principal Event
 const eventSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true },
   description: { type: String, required: true },
   date: { type: String, required: true },
   time: { type: String, required: true },
 
-  // ✅ Correcta inclusión del subesquema
   location: { type: locationSchema, required: false },
 
   featuredImage: { type: String, default: "/placeholder-evento.jpg" },
@@ -71,6 +70,10 @@ const eventSchema = new mongoose.Schema({
     default: "activo",
   },
 
+  // ✅ Likes de usuarios
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+  // ✅ Feedback embebido (opcional)
   feedback: [
     {
       user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

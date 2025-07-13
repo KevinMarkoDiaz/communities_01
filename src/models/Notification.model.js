@@ -10,7 +10,7 @@ const notificationSchema = new mongoose.Schema(
 
     entityType: {
       type: String,
-      enum: ["business", "event", "community", "promotion"],
+      enum: ["business", "event", "community", "promotion", "message"],
       required: true,
     },
 

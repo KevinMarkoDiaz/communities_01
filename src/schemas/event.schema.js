@@ -43,9 +43,9 @@ export const eventSchema = z.object({
 
   images: z
     .array(
-      z
-        .string()
-        .url({ message: "La URL de una imagen de galería no es válida" })
+      z.string().url({
+        message: "La URL de una imagen de galería no es válida",
+      })
     )
     .optional()
     .default([]),
@@ -59,6 +59,7 @@ export const eventSchema = z.object({
   isFree: z.boolean().default(true),
 
   isOnline: z.boolean().default(false),
+
   registrationLink: z
     .string()
     .trim()

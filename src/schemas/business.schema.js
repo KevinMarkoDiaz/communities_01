@@ -14,10 +14,9 @@ const horarioSchema = z
       .regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
       .optional(),
   })
-  .refine(
-    (val) => val.closed || (val.open && val.close),
-    { message: "Día abierto requiere horas de apertura y cierre" }
-  );
+  .refine((val) => val.closed || (val.open && val.close), {
+    message: "Día abierto requiere horas de apertura y cierre",
+  });
 
 const socialMediaSchema = z.object({
   facebook: z.string().url().optional(),
@@ -49,7 +48,7 @@ const locationSchema = z.object({
   }),
 });
 
-// ✅ Esquema completo de negocio con campos de imagen
+// ✅ Esquema completo de negocio
 export const businessSchema = z.object({
   name: z.string().min(1).max(100).trim(),
   description: z.string().max(1000),
@@ -64,7 +63,6 @@ export const businessSchema = z.object({
   contact: contactSchema,
   openingHours: z.array(horarioSchema).optional(),
 
-  // ✅ Nuevos campos de imagen
   featuredImage: z.string().url().optional(),
   profileImage: z.string().url().optional(),
   images: z.array(z.string().url()).optional(),

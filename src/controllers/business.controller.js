@@ -2,8 +2,9 @@
 import Business from "../models/business.model.js";
 import Community from "../models/community.model.js";
 import Notification from "../models/Notification.model.js";
-import Follow from "../models/follow.model.js";
 import { geocodeAddress } from "../utils/geocode.js";
+import businessViewModel from "../models/businessView.model.js";
+import Follow from "../models/follow.model.js";
 
 /**
  * Crear un nuevo negocio
@@ -119,6 +120,12 @@ export const getBusinessById = async (req, res) => {
     if (!business) {
       return res.status(404).json({ msg: "Negocio no encontrado." });
     }
+    await businessViewModel.create({
+      business: business._id,
+      viewer: req.user ? req.user._id : null,
+      isAnonymous: !req.user,
+      viewedAt: new Date(),
+    });
 
     res.status(200).json({ business });
   } catch (error) {
@@ -344,5 +351,35 @@ export const getPromotionsByBusiness = async (req, res) => {
   } catch (error) {
     console.error("❌ Error al obtener promociones del negocio:", error);
     res.status(500).json({ msg: "Error interno del servidor" });
+  }
+};
+
+// ✅ Alternar like
+export const toggleLikeBusiness = async (req, res) => {
+  try {
+    const business = await Business.findById(req.params.id);
+
+    if (!business) {
+      return res.status(404).json({ error: "Negocio no encontrado" });
+    }
+
+    const userId = req.user._id.toString();
+    const index = business.likes.findIndex((id) => id.toString() === userId);
+
+    if (index === -1) {
+      business.likes.push(userId);
+    } else {
+      business.likes.splice(index, 1);
+    }
+
+    await business.save();
+
+    res.json({
+      likesCount: business.likes.length,
+      liked: index === -1,
+    });
+  } catch (error) {
+    console.error("Error al togglear like:", error);
+    res.status(500).json({ error: "Error al procesar el me gusta" });
   }
 };

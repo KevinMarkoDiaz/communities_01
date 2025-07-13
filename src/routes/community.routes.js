@@ -12,10 +12,7 @@ import {
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
 import { validateWith } from "../middlewares/validateWith.js";
-import {
-  communitySchema,
-  communityUpdateSchema,
-} from "../schemas/community.schema.js";
+import { communitySchema } from "../schemas/community.schema.js";
 
 import {
   uploadCommunityImages,
