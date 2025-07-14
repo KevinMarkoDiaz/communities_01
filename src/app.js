@@ -41,33 +41,33 @@ app.use(morgan("dev"));
 app.use(cookieParser());
 
 // // 🌐 CORS esto no funciona para local
-// const allowedOrigins = [
-//   "http://localhost:5173",
-//   "https://communidades.com",
-//   "https://www.communidades.com",
-//   "https://dev.communidades.com",
-// ];
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://communidades.com",
+  "https://www.communidades.com",
+  "https://dev.communidades.com",
+];
 
-// app.use(
-//   cors({
-//     origin: function (origin, callback) {
-//       if (!origin || allowedOrigins.includes(origin)) {
-//         callback(null, true);
-//       } else {
-//         callback(new Error("Not allowed by CORS: " + origin));
-//       }
-//     },
-//     credentials: true,
-//   })
-// );
-
-// esto funciona para local
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS: " + origin));
+      }
+    },
     credentials: true,
   })
 );
+
+// esto funciona para local
+// app.use(
+//   cors({
+//     origin: "http://localhost:5173",
+//     credentials: true,
+//   })
+// );
 
 // Passport
 app.use(passport.initialize());
