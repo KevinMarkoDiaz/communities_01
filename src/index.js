@@ -1,3 +1,11 @@
+// 🛡️ Errores globales
+process.on("uncaughtException", (err) => {
+  console.error("🔴 Excepción no capturada:", err);
+});
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("🔴 Rechazo no manejado:", reason);
+});
+
 import dotenv from "dotenv";
 dotenv.config(); // 🟢 Cargar variables antes de todo
 

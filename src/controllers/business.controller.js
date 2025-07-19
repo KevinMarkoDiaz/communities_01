@@ -3,7 +3,7 @@ import Business from "../models/business.model.js";
 import Community from "../models/community.model.js";
 import Notification from "../models/Notification.model.js";
 import { geocodeAddress } from "../utils/geocode.js";
-import businessViewModel from "../models/businessView.model.js";
+import businessView from "../models/businessView.model.js";
 import Follow from "../models/follow.model.js";
 
 /**
@@ -120,7 +120,7 @@ export const getBusinessById = async (req, res) => {
     if (!business) {
       return res.status(404).json({ msg: "Negocio no encontrado." });
     }
-    await businessViewModel.create({
+    await businessView.create({
       business: business._id,
       viewer: req.user ? req.user._id : null,
       isAnonymous: !req.user,

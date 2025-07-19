@@ -56,6 +56,12 @@ export const registerUser = async (req, res) => {
         profileImage: newUser.profileImage,
         isVerified: newUser.isVerified,
         community: newUser.community,
+
+        // ✅ agregá:
+        title: newUser.title,
+        description: newUser.description,
+        location: newUser.location,
+        country: newUser.country,
       },
     });
   } catch (error) {
@@ -96,6 +102,12 @@ export const loginUser = async (req, res) => {
         profileImage: user.profileImage,
         isVerified: user.isVerified,
         community: user.community,
+
+        // ✅ agregá:
+        title: user.title,
+        description: user.description,
+        location: user.location,
+        country: user.country,
       },
     });
   } catch (error) {
@@ -131,7 +143,6 @@ export const getUserProfile = async (req, res) => {
 
     res.status(200).json({
       user: {
-        // 👈 importante: encapsular en 'user'
         id: user._id,
         name: user.name,
         email: user.email,
@@ -139,6 +150,10 @@ export const getUserProfile = async (req, res) => {
         profileImage: user.profileImage,
         isVerified: user.isVerified,
         community: user.community,
+        title: user.title,
+        description: user.description,
+        location: user.location,
+        country: user.country,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },

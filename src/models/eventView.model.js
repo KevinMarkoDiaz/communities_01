@@ -20,6 +20,14 @@ const eventViewSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    ip: {
+      type: String,
+      default: "",
+    },
+    referrer: {
+      type: String,
+      default: "",
+    },
   },
   { timestamps: true }
 );

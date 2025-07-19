@@ -1,12 +1,10 @@
 import BusinessView from "../models/businessView.model.js";
-import Business from "../models/business.model.js"; // 🟢 ESTA LÍNEA ES CLAVE
-
-// ...y el resto de tus funciones
+import Business from "../models/business.model.js";
 import mongoose from "mongoose";
-
 import Follow from "../models/follow.model.js";
 import Rating from "../models/rating.model.js";
 import Comment from "../models/comment.model.js";
+
 /**
  * Registrar una visita
  */
@@ -14,13 +12,13 @@ export const registerBusinessView = async (req, res) => {
   try {
     const { businessId } = req.params;
 
-    // 1. Cargar negocio para verificar propietario
+    // 1. Verificar si el negocio existe
     const negocio = await Business.findById(businessId).select("owner");
     if (!negocio) {
       return res.status(404).json({ msg: "Negocio no encontrado" });
     }
 
-    // 2. Verificar si la visita viene de su dueño
+    // 2. Ignorar si el visitante es el dueño
     if (req.user && req.user._id.toString() === negocio.owner.toString()) {
       console.log("👤 Visitante es el owner. No se registrará vista.");
       return res
@@ -28,12 +26,16 @@ export const registerBusinessView = async (req, res) => {
         .json({ msg: "Vista ignorada por ser el propietario." });
     }
 
-    // 3. Registrar vista normalmente
+    // 3. Registrar la vista
     const view = new BusinessView({
-      user: req.user ? req.user._id : undefined,
-      entityType: "business",
-      entityId: businessId,
+      business: businessId,
+      viewer: req.user ? req.user._id : null,
+      isAnonymous: !req.user,
+      viewedAt: new Date(),
+      ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+      referrer: req.get("Referrer") || "",
     });
+
     await view.save();
 
     console.log("✅ Vista registrada:", view._id);
@@ -54,10 +56,12 @@ export const getBusinessMetrics = async (req, res) => {
     const totalViews = await BusinessView.countDocuments({
       business: businessId,
     });
+
     const anonymousViews = await BusinessView.countDocuments({
       business: businessId,
       isAnonymous: true,
     });
+
     const uniqueUsers = await BusinessView.distinct("viewer", {
       business: businessId,
       isAnonymous: false,
@@ -146,7 +150,7 @@ export const getBusinessMetricsByDate = async (req, res) => {
 };
 
 /**
- * Visitas agrupadas por día
+ * Visitas agrupadas por día y tipo
  */
 export const getBusinessDailyViews = async (req, res) => {
   try {
@@ -176,6 +180,7 @@ export const getBusinessDailyViews = async (req, res) => {
             year: { $year: "$viewedAt" },
             month: { $month: "$viewedAt" },
             day: { $dayOfMonth: "$viewedAt" },
+            isAnonymous: "$isAnonymous",
           },
           count: { $sum: 1 },
         },
@@ -187,6 +192,7 @@ export const getBusinessDailyViews = async (req, res) => {
       date: `${d._id.year}-${String(d._id.month).padStart(2, "0")}-${String(
         d._id.day
       ).padStart(2, "0")}`,
+      isAnonymous: d._id.isAnonymous,
       count: d.count,
     }));
 
@@ -215,6 +221,8 @@ export const getBusinessTopViewers = async (req, res) => {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
 
+    const parsedLimit = Math.max(parseInt(limit) || 10, 1);
+
     const topViewers = await BusinessView.aggregate([
       {
         $match: {
@@ -230,7 +238,7 @@ export const getBusinessTopViewers = async (req, res) => {
         },
       },
       { $sort: { count: -1 } },
-      { $limit: parseInt(limit) || 10 },
+      { $limit: parsedLimit },
       {
         $lookup: {
           from: "users",
@@ -256,6 +264,9 @@ export const getBusinessTopViewers = async (req, res) => {
   }
 };
 
+/**
+ * Resumen de seguidores, ratings y comentarios
+ */
 export const getBusinessSummary = async (req, res) => {
   const { businessId } = req.params;
 
@@ -274,7 +285,7 @@ export const getBusinessSummary = async (req, res) => {
       },
       {
         $group: {
-          _id: "$value", // rating de 1 a 5
+          _id: "$value",
           count: { $sum: 1 },
         },
       },
@@ -311,5 +322,67 @@ export const getBusinessSummary = async (req, res) => {
   } catch (error) {
     console.error("❌ Error en getBusinessSummary:", error);
     res.status(500).json({ msg: "Error al obtener resumen de métricas." });
+  }
+};
+
+/**
+ * Listar visitas con IPs en un rango de fechas
+ */
+
+/**
+ * 🚀 NOTA DE IMPLEMENTACIÓN FUTURA:
+ *
+ * Este endpoint devuelve la IP de cada visita registrada.
+ * Para poder ubicar geográficamente desde qué ciudad o país se realizaron las visitas,
+ * será necesario integrar un servicio de geolocalización por IP (por ejemplo, ipinfo.io, ipstack o MaxMind).
+ *
+ * Flujo recomendado:
+ * 1️⃣ Al registrar cada vista (en registerBusinessView), consultar la API de geolocalización con la IP.
+ * 2️⃣ Guardar en el modelo los campos:
+ *     - country
+ *     - region
+ *     - city
+ *     - latitude
+ *     - longitude
+ * 3️⃣ Mostrar esta información en los reportes y métricas del negocio.
+ *
+ * Con esta base, se podrán generar estadísticas sobre la procedencia de las visitas.
+ */
+
+export const getBusinessVisitsWithIPs = async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        message: "Debes proporcionar startDate y endDate en el query",
+      });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const visits = await BusinessView.find({
+      business: businessId,
+      viewedAt: { $gte: start, $lte: end },
+    })
+      .sort({ viewedAt: -1 })
+      .populate("viewer", "name email");
+
+    const result = visits.map((v) => ({
+      date: v.viewedAt,
+      ip: v.ip,
+      isAnonymous: v.isAnonymous,
+      viewer: v.viewer ? { name: v.viewer.name, email: v.viewer.email } : null,
+    }));
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error obteniendo visitas con IPs:", error);
+    res.status(500).json({
+      message: "Error al obtener visitas con IPs",
+    });
   }
 };

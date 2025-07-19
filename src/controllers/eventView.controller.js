@@ -2,7 +2,7 @@ import EventView from "../models/eventView.model.js";
 import mongoose from "mongoose";
 
 /**
- * Registrar una visita
+ * Registrar una visita a un evento
  */
 export const registerEventView = async (req, res) => {
   try {
@@ -10,11 +10,12 @@ export const registerEventView = async (req, res) => {
     const userId = req.user ? req.user._id : null;
     const isAnonymous = !userId;
 
+    // Para evitar registrar cada refresco, puedes chequear si hubo visita reciente
     const recentlyViewed = await EventView.findOne({
       event: eventId,
       viewer: userId,
       isAnonymous,
-      viewedAt: { $gte: new Date(Date.now() - 1000 * 60 * 30) },
+      viewedAt: { $gte: new Date(Date.now() - 1000 * 60 * 30) }, // 30 minutos
     });
 
     if (!recentlyViewed) {
@@ -22,6 +23,9 @@ export const registerEventView = async (req, res) => {
         event: eventId,
         viewer: userId,
         isAnonymous,
+        viewedAt: new Date(),
+        ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+        referrer: req.get("Referrer") || "",
       });
     }
 
@@ -33,7 +37,7 @@ export const registerEventView = async (req, res) => {
 };
 
 /**
- * Obtener métricas totales
+ * Obtener métricas totales de visitas
  */
 export const getEventMetrics = async (req, res) => {
   try {
@@ -64,6 +68,8 @@ export const getEventMetrics = async (req, res) => {
       lastVisitors: lastVisitors.map((v) => ({
         name: v.viewer?.name || "Desconocido",
         date: v.viewedAt,
+        ip: v.ip || "",
+        referrer: v.referrer || "",
       })),
     });
   } catch (error) {
@@ -73,7 +79,7 @@ export const getEventMetrics = async (req, res) => {
 };
 
 /**
- * Métricas filtradas por fecha
+ * Obtener métricas filtradas por fecha
  */
 export const getEventMetricsByDate = async (req, res) => {
   try {
@@ -81,11 +87,9 @@ export const getEventMetricsByDate = async (req, res) => {
     const { startDate, endDate } = req.query;
 
     if (!startDate || !endDate) {
-      return res
-        .status(400)
-        .json({
-          message: "Debes proporcionar startDate y endDate en el query",
-        });
+      return res.status(400).json({
+        message: "Debes proporcionar startDate y endDate en el query",
+      });
     }
 
     const start = new Date(startDate);
@@ -125,6 +129,8 @@ export const getEventMetricsByDate = async (req, res) => {
       lastVisitors: lastVisitors.map((v) => ({
         name: v.viewer?.name || "Desconocido",
         date: v.viewedAt,
+        ip: v.ip || "",
+        referrer: v.referrer || "",
       })),
     });
   } catch (error) {
@@ -142,11 +148,9 @@ export const getEventDailyViews = async (req, res) => {
     const { startDate, endDate } = req.query;
 
     if (!startDate || !endDate) {
-      return res
-        .status(400)
-        .json({
-          message: "Debes proporcionar startDate y endDate en el query",
-        });
+      return res.status(400).json({
+        message: "Debes proporcionar startDate y endDate en el query",
+      });
     }
 
     const start = new Date(startDate);
@@ -166,6 +170,7 @@ export const getEventDailyViews = async (req, res) => {
             year: { $year: "$viewedAt" },
             month: { $month: "$viewedAt" },
             day: { $dayOfMonth: "$viewedAt" },
+            isAnonymous: "$isAnonymous",
           },
           count: { $sum: 1 },
         },
@@ -177,6 +182,7 @@ export const getEventDailyViews = async (req, res) => {
       date: `${d._id.year}-${String(d._id.month).padStart(2, "0")}-${String(
         d._id.day
       ).padStart(2, "0")}`,
+      isAnonymous: d._id.isAnonymous,
       count: d.count,
     }));
 
@@ -196,11 +202,9 @@ export const getEventTopViewers = async (req, res) => {
     const { startDate, endDate, limit } = req.query;
 
     if (!startDate || !endDate) {
-      return res
-        .status(400)
-        .json({
-          message: "Debes proporcionar startDate y endDate en el query",
-        });
+      return res.status(400).json({
+        message: "Debes proporcionar startDate y endDate en el query",
+      });
     }
 
     const start = new Date(startDate);
@@ -245,5 +249,55 @@ export const getEventTopViewers = async (req, res) => {
   } catch (error) {
     console.error("Error obteniendo ranking de usuarios:", error);
     res.status(500).json({ message: "Error obteniendo ranking de usuarios" });
+  }
+};
+/**
+ * Obtener todas las visitas detalladas por fecha (IP, referrer, etc.)
+ *
+ * ⚠️ En el futuro puedes usar un servicio de geolocalización (por ejemplo, ipapi.co o ipstack)
+ *     para convertir la IP en ciudad/país y enriquecer esta información.
+ */
+export const getEventDetailedViews = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        message: "Debes proporcionar startDate y endDate en el query",
+      });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const views = await EventView.find({
+      event: eventId,
+      viewedAt: { $gte: start, $lte: end },
+    })
+      .sort({ viewedAt: -1 })
+      .populate("viewer", "name email");
+
+    res.status(200).json(
+      views.map((v) => ({
+        date: v.viewedAt,
+        isAnonymous: v.isAnonymous,
+        ip: v.ip || "",
+        referrer: v.referrer || "",
+        viewer: v.viewer
+          ? {
+              id: v.viewer._id,
+              name: v.viewer.name,
+              email: v.viewer.email,
+            }
+          : null,
+      }))
+    );
+  } catch (error) {
+    console.error("Error obteniendo visitas detalladas:", error);
+    res.status(500).json({
+      message: "Error obteniendo visitas detalladas",
+    });
   }
 };

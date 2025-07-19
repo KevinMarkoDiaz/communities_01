@@ -6,6 +6,7 @@ import {
   getBusinessDailyViews,
   getBusinessTopViewers,
   getBusinessSummary,
+  getBusinessVisitsWithIPs,
 } from "../controllers/businessView.controller.js";
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
@@ -38,4 +39,9 @@ router.get(
   getBusinessTopViewers
 );
 
+router.get(
+  "/:businessId/visits-with-ips",
+  authMiddleware,
+  getBusinessVisitsWithIPs
+);
 export default router;

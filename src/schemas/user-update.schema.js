@@ -1,39 +1,32 @@
 import { z } from "zod";
 
 export const userUpdateSchema = z.object({
-  name: z.string()
-    .max(100, { message: "El nombre no puede exceder 100 caracteres" })
+  name: z.string().max(100).optional(),
+  lastName: z.string().max(100).optional(),
+  title: z.string().max(100).optional(),
+  description: z.string().max(1000).optional(),
+  location: z.string().max(100).optional(),
+  country: z.string().max(100).optional(),
+  community: z
+    .string()
+    .regex(/^[0-9a-fA-F]{24}$/)
     .optional(),
 
-  lastName: z.string()
-    .max(100, { message: "El apellido no puede exceder 100 caracteres" })
+  profileImage: z
+    .union([
+      z.string().url(), // cuando viene como URL (actual ya subida)
+      z.any().refine(
+        // cuando viene como `File` de multer
+        (val) =>
+          typeof val === "object" &&
+          val !== null &&
+          (val instanceof File || val.path), // para `req.file` de multer
+        { message: "La imagen debe ser un archivo o una URL válida" }
+      ),
+    ])
     .optional(),
 
-  title: z.string()
-    .max(100, { message: "El título no puede exceder 100 caracteres" })
-    .optional(),
-
-  description: z.string()
-    .max(1000, { message: "La descripción no puede exceder 1000 caracteres" })
-    .optional(),
-
-  location: z.string()
-    .max(100, { message: "La ubicación no puede exceder 100 caracteres" })
-    .optional(),
-
-  country: z.string()
-    .max(100, { message: "El país no puede exceder 100 caracteres" })
-    .optional(),
-
-  community: z.string()
-    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de comunidad inválido" })
-    .optional(),
-
-  profileImage: z.string()
-    .url({ message: "La URL de la imagen de perfil no es válida" })
-    .optional(),
-
-  // ❌ Campos que no deberían modificarse desde frontend
+  // ❌ Campos que no deben tocar
   email: z.undefined(),
   isVerified: z.undefined(),
   updatedAt: z.undefined(),

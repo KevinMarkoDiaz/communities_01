@@ -20,6 +20,12 @@ const businessViewSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    ip: {
+      type: String,
+    },
+    referrer: {
+      type: String,
+    },
   },
   { timestamps: true }
 );
