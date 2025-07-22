@@ -12,25 +12,31 @@ export const eventSchema = z.object({
     .min(1, { message: "La descripción es obligatoria" })
     .max(2000, { message: "La descripción no puede exceder 2000 caracteres" }),
 
-  date: z.string().refine((val) => !isNaN(Date.parse(val)), {
-    message: "La fecha debe ser una fecha ISO válida",
-  }),
+  date: z
+    .string()
+    .refine((val) => !isNaN(Date.parse(val)), {
+      message: "La fecha debe ser una fecha ISO válida",
+    })
+    .optional(), // permite dejarla vacía al crear (si querés forzar, quitá esto)
 
-  time: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: "La hora debe estar en formato HH:MM (24h)",
-  }),
+  time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+      message: "La hora debe estar en formato HH:MM (24h)",
+    })
+    .optional(),
 
   location: z
     .object({
-      address: z.string().min(1, "Dirección obligatoria"),
-      city: z.string().min(1, "Ciudad obligatoria"),
-      state: z.string().min(1, "Estado obligatorio"),
+      address: z.string().min(1, "Dirección obligatoria").optional(),
+      city: z.string().min(1, "Ciudad obligatoria").optional(),
+      state: z.string().min(1, "Estado obligatorio").optional(),
       zipCode: z.string().optional(),
       country: z.string().optional(),
       coordinates: z
         .object({
-          lat: z.number().min(-90).max(90),
-          lng: z.number().min(-180).max(180),
+          lat: z.number().min(-90).max(90).nullable(),
+          lng: z.number().min(-180).max(180).nullable(),
         })
         .optional(),
     })
@@ -54,11 +60,11 @@ export const eventSchema = z.object({
 
   language: z.string().min(2).max(5).default("es"),
 
-  price: z.number().min(0).default(0),
+  price: z.number().min(0).optional().default(0),
 
-  isFree: z.boolean().default(true),
+  isFree: z.boolean().optional().default(true),
 
-  isOnline: z.boolean().default(false),
+  isOnline: z.boolean().optional().default(false),
 
   registrationLink: z
     .string()
@@ -124,9 +130,12 @@ export const eventSchema = z.object({
     .optional()
     .default([]),
 
-  isPublished: z.boolean().default(false),
+  isPublished: z.boolean().optional().default(false),
 
-  featured: z.boolean().default(false),
+  featured: z.boolean().optional().default(false),
 
-  status: z.enum(["activo", "finalizado", "cancelado"]).default("activo"),
+  status: z
+    .enum(["activo", "finalizado", "cancelado"])
+    .optional()
+    .default("activo"),
 });

@@ -5,8 +5,12 @@ import communityViewModel from "../models/communityView.model.js";
 import Follow from "../models/follow.model.js";
 import Rating from "../models/rating.model.js";
 import Comment from "../models/comment.model.js";
+import Notification from "../models/Notification.model.js";
+
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
 /**
- * Crea una nueva comunidad.
+ * Crear comunidad
  */
 export const createCommunity = async (req, res) => {
   try {
@@ -16,29 +20,23 @@ export const createCommunity = async (req, res) => {
         .json({ msg: "No tienes permisos para crear comunidades." });
     }
 
-    const data = req.body.data ? JSON.parse(req.body.data) : req.body;
+    let data;
+    try {
+      data = req.body.data ? JSON.parse(req.body.data) : req.body;
+    } catch (err) {
+      return res
+        .status(400)
+        .json({ msg: "Error al parsear los datos de entrada." });
+    }
 
-    const {
-      name,
-      description,
-      flagImage,
-      bannerImage,
-      language,
-      tipo,
-      populationEstimate,
-      originCountryInfo,
-      traditions,
-      food,
-      resources,
-      socialMediaLinks,
-      region,
-      mapCenter,
-      metaTitle,
-      metaDescription,
-    } = data;
+    const { name } = data;
+    if (!name)
+      return res
+        .status(400)
+        .json({ msg: "El nombre de la comunidad es obligatorio." });
 
-    const existingCommunity = await Community.findOne({ name });
-    if (existingCommunity) {
+    const existing = await Community.findOne({ name });
+    if (existing) {
       return res
         .status(400)
         .json({ msg: "Ya existe una comunidad con ese nombre." });
@@ -47,59 +45,49 @@ export const createCommunity = async (req, res) => {
     const slug = slugify(name, { lower: true, strict: true });
 
     const newCommunity = new Community({
+      ...data,
       name,
       slug,
-      description,
-      flagImage,
-      bannerImage,
-      language,
-      tipo,
       owner: req.user.id,
-      populationEstimate,
-      originCountryInfo,
-      traditions,
-      food,
-      resources,
-      socialMediaLinks,
-      region,
-      mapCenter,
-      metaTitle,
-      metaDescription,
       status: "Publicada",
       verified: false,
     });
 
     await newCommunity.save();
 
-    res.status(201).json({
-      msg: "Comunidad creada exitosamente.",
-      community: newCommunity,
-    });
+    res
+      .status(201)
+      .json({ msg: "Comunidad creada exitosamente.", community: newCommunity });
   } catch (error) {
-    console.error("❌ Error al crear comunidad:", error);
+    console.error("❌ Error en createCommunity:", error);
     res.status(500).json({ msg: "Error al crear la comunidad." });
   }
 };
 
 /**
- * Obtiene todas las comunidades.
+ * Obtener todas las comunidades
  */
 export const getAllCommunities = async (req, res) => {
   try {
     const communities = await Community.find().populate("owner", "name email");
     res.status(200).json({ communities });
   } catch (error) {
-    console.error("❌ Error al obtener comunidades:", error);
+    console.error("❌ Error en getAllCommunities:", error);
     res.status(500).json({ msg: "Error al obtener comunidades." });
   }
 };
 
 /**
- * Obtiene una comunidad por ID.
+ * Obtener comunidad por ID
  */
 export const getCommunityById = async (req, res) => {
   try {
-    const community = await Community.findById(req.params.id)
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ msg: "ID de comunidad inválido." });
+    }
+
+    const community = await Community.findById(id)
       .populate("owner", "name email role profileImage")
       .populate("negocios", "name category location images")
       .populate("eventos", "title startDate endDate imagenDestacada");
@@ -107,29 +95,57 @@ export const getCommunityById = async (req, res) => {
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
+
     await communityViewModel.create({
       community: community._id,
       viewer: req.user ? req.user._id : null,
       isAnonymous: !req.user,
       viewedAt: new Date(),
     });
+
     res.status(200).json({ community });
   } catch (error) {
-    console.error("❌ Error al obtener comunidad:", error);
+    console.error("❌ Error en getCommunityById:", error);
     res.status(500).json({ msg: "Error al obtener la comunidad." });
   }
 };
 
 /**
- * Actualiza una comunidad.
+ * Obtener comunidad por slug público
+ */
+export const getCommunityBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const community = await Community.findOne({ slug })
+      .populate("owner", "name email role profileImage")
+      .populate("negocios", "name category location images")
+      .populate("eventos", "title startDate endDate imagenDestacada");
+
+    if (!community) {
+      return res.status(404).json({ msg: "Comunidad no encontrada." });
+    }
+
+    res.status(200).json({ community });
+  } catch (error) {
+    console.error("❌ Error en getCommunityBySlug:", error);
+    res.status(500).json({ msg: "Error al buscar comunidad por slug." });
+  }
+};
+
+/**
+ * Actualizar comunidad
  */
 export const updateCommunity = async (req, res) => {
   try {
     const data = req.body.data ? JSON.parse(req.body.data) : req.body;
     const { name } = data;
 
-    let community = await Community.findById(req.params.id);
-    if (!community && typeof req.params.id === "string") {
+    let community = null;
+
+    if (isValidObjectId(req.params.id)) {
+      community = await Community.findById(req.params.id);
+    } else {
       community = await Community.findOne({ slug: req.params.id });
     }
 
@@ -137,10 +153,10 @@ export const updateCommunity = async (req, res) => {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    if (
-      community.owner.toString() !== req.user.id &&
-      req.user.role !== "admin"
-    ) {
+    const isOwner = community.owner.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+
+    if (!isOwner && !isAdmin) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para editar esta comunidad." });
@@ -185,7 +201,6 @@ export const updateCommunity = async (req, res) => {
 
     await community.save();
 
-    // 🎯 Crear notificaciones a seguidores de la comunidad
     const followers = await Follow.find({
       entityType: "community",
       entityId: community._id,
@@ -203,137 +218,101 @@ export const updateCommunity = async (req, res) => {
       }));
 
       await Notification.insertMany(notifications);
-      console.log(
-        `📢 Notificaciones creadas para ${followers.length} seguidores.`
-      );
     }
 
-    res.status(200).json({
-      msg: "Comunidad actualizada exitosamente.",
-      community,
-    });
+    res
+      .status(200)
+      .json({ msg: "Comunidad actualizada exitosamente.", community });
   } catch (error) {
-    console.error("❌ Error al actualizar comunidad:", error);
+    console.error("❌ Error en updateCommunity:", error);
     res.status(500).json({ msg: "Error al actualizar la comunidad." });
   }
 };
 
 /**
- * Elimina una comunidad.
+ * Eliminar comunidad
  */
 export const deleteCommunity = async (req, res) => {
   try {
-    const community = await Community.findById(req.params.id);
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ msg: "ID inválido." });
+    }
+
+    const community = await Community.findById(id);
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    if (
-      community.owner.toString() !== req.user.id &&
-      req.user.role !== "admin"
-    ) {
+    const isOwner = community.owner.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+
+    if (!isOwner && !isAdmin) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para eliminar esta comunidad." });
     }
 
     await community.deleteOne();
-
     res.status(200).json({ msg: "Comunidad eliminada exitosamente." });
   } catch (error) {
-    console.error("❌ Error al eliminar comunidad:", error);
+    console.error("❌ Error en deleteCommunity:", error);
     res.status(500).json({ msg: "Error al eliminar la comunidad." });
   }
 };
 
 /**
- * Obtiene las comunidades del usuario autenticado.
+ * Obtener comunidades del usuario autenticado
  */
 export const getMyCommunities = async (req, res) => {
   try {
-    const query = req.user.role === "admin" ? {} : { owner: req.user.id };
-    const communities = await Community.find(query);
+    const filter = req.user.role === "admin" ? {} : { owner: req.user.id };
+    const communities = await Community.find(filter);
     res.status(200).json({ communities });
   } catch (error) {
-    console.error("❌ Error al obtener comunidades del usuario:", error);
+    console.error("❌ Error en getMyCommunities:", error);
     res.status(500).json({ msg: "Error al obtener comunidades." });
   }
 };
 
 /**
- * Obtiene una comunidad pública a través del slug.
+ * Resumen de comunidad
  */
-export const getCommunityBySlug = async (req, res) => {
-  try {
-    const { slug } = req.params;
-
-    const community = await Community.findOne({ slug })
-      .populate("owner", "name email role profileImage")
-      .populate("negocios", "name category location images")
-      .populate("eventos", "title startDate endDate imagenDestacada");
-
-    if (!community) {
-      return res.status(404).json({ msg: "Comunidad no encontrada." });
-    }
-
-    res.status(200).json({ community });
-  } catch (error) {
-    console.error("❌ Error al obtener comunidad por slug:", error);
-    res.status(500).json({ msg: "Error al buscar comunidad por slug." });
-  }
-};
 
 export const getCommunitySummary = async (req, res) => {
-  const { id } = req.params;
+  const { communityId } = req.params;
+
+  if (!isValidObjectId(communityId)) {
+    return res.status(400).json({ msg: "ID de comunidad inválido." });
+  }
 
   try {
-    const objectId = new mongoose.Types.ObjectId(id);
+    const objectId = new mongoose.Types.ObjectId(communityId);
 
-    // 1️⃣ Total de seguidores
-    const followersCount = await Follow.countDocuments({
-      entityType: "community",
-      entity: objectId,
-    });
+    const [followersCount, commentsCount, ratingsAggregation, allRatings] =
+      await Promise.all([
+        Follow.countDocuments({ entityType: "community", entity: objectId }),
+        Comment.countDocuments({ entityType: "community", entity: objectId }),
+        Rating.aggregate([
+          { $match: { entityType: "community", entity: objectId } },
+          { $group: { _id: "$value", count: { $sum: 1 } } },
+          { $sort: { _id: 1 } },
+        ]),
+        Rating.find(
+          { entityType: "community", entity: objectId },
+          { value: 1 }
+        ),
+      ]);
 
-    // 2️⃣ Total de comentarios
-    const commentsCount = await Comment.countDocuments({
-      entityType: "community",
-      entity: objectId,
-    });
-
-    // 3️⃣ Agrupación de ratings por cantidad de estrellas
-    const ratingsAggregation = await Rating.aggregate([
-      {
-        $match: {
-          entityType: "community",
-          entity: objectId,
-        },
-      },
-      {
-        $group: {
-          _id: "$value",
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $sort: { _id: 1 },
-      },
-    ]);
-
-    // 4️⃣ Promedio de rating
-    const ratingsAll = await Rating.find({
-      entityType: "community",
-      entity: objectId,
-    });
-
+    const totalRatings = allRatings.length;
     const averageRating =
-      ratingsAll.length > 0
+      totalRatings > 0
         ? (
-            ratingsAll.reduce((acc, r) => acc + r.value, 0) / ratingsAll.length
+            allRatings.reduce((acc, r) => acc + r.value, 0) / totalRatings
           ).toFixed(2)
         : null;
 
-    res.json({
+    res.status(200).json({
       followersCount,
       commentsCount,
       ratings: ratingsAggregation,
@@ -343,6 +322,6 @@ export const getCommunitySummary = async (req, res) => {
     console.error("❌ Error en getCommunitySummary:", error);
     res
       .status(500)
-      .json({ msg: "Error al obtener el resumen de la comunidad" });
+      .json({ msg: "Error al obtener el resumen de la comunidad." });
   }
 };

@@ -1,32 +1,24 @@
 // middlewares/addPromotionMetaFields.js
+
 export function addPromotionMetaFields(req, res, next) {
   try {
-    const parsed = JSON.parse(req.body.data || "{}");
+    const body = req.body;
 
-    // Asegurar createdBy
-    if (req.user?.id) {
-      parsed.createdBy = req.user.id;
+    if (!body || typeof body !== "object") {
+      return res
+        .status(400)
+        .json({ msg: "Faltan datos en el formulario de promoción" });
     }
 
-    // Si community ya viene no hacemos nada
-    if (!parsed.community) {
-      console.warn(
-        "⚠️ Faltaba community en req.body.data, no se pudo autoasignar"
-      );
+    // Añadir createdBy si no está presente
+    if (req.user?.id && !body.createdBy) {
+      body.createdBy = req.user.id;
     }
 
-    // Reasignar al req.body con los nuevos campos
-    req.body = {
-      ...parsed,
-      featuredImage: req.body.featuredImage,
-    };
-
+    // Continúa con el siguiente middleware/controlador
     next();
   } catch (error) {
-    console.error(
-      "❌ Error al parsear req.body.data en addPromotionMetaFields:",
-      error
-    );
+    console.error("❌ Error en addPromotionMetaFields:", error);
     res.status(400).json({ msg: "Error al procesar los datos del formulario" });
   }
 }

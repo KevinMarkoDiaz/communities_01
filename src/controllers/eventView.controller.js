@@ -2,20 +2,28 @@ import EventView from "../models/eventView.model.js";
 import mongoose from "mongoose";
 
 /**
+ * Utilidad para validar si un ID es ObjectId válido
+ */
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+/**
  * Registrar una visita a un evento
  */
 export const registerEventView = async (req, res) => {
   try {
     const { eventId } = req.params;
+    if (!isValidObjectId(eventId)) {
+      return res.status(400).json({ message: "ID de evento inválido" });
+    }
+
     const userId = req.user ? req.user._id : null;
     const isAnonymous = !userId;
 
-    // Para evitar registrar cada refresco, puedes chequear si hubo visita reciente
     const recentlyViewed = await EventView.findOne({
       event: eventId,
       viewer: userId,
       isAnonymous,
-      viewedAt: { $gte: new Date(Date.now() - 1000 * 60 * 30) }, // 30 minutos
+      viewedAt: { $gte: new Date(Date.now() - 1000 * 60 * 30) },
     });
 
     if (!recentlyViewed) {
@@ -32,7 +40,7 @@ export const registerEventView = async (req, res) => {
     res.status(201).json({ message: "Visita registrada" });
   } catch (error) {
     console.error("Error al registrar visita:", error);
-    res.status(500).json({ message: "Error al registrar visita" });
+    res.status(500).json({ message: "Error interno al registrar visita" });
   }
 };
 
@@ -42,6 +50,9 @@ export const registerEventView = async (req, res) => {
 export const getEventMetrics = async (req, res) => {
   try {
     const { eventId } = req.params;
+    if (!isValidObjectId(eventId)) {
+      return res.status(400).json({ message: "ID de evento inválido" });
+    }
 
     const totalViews = await EventView.countDocuments({ event: eventId });
     const anonymousViews = await EventView.countDocuments({
@@ -74,7 +85,7 @@ export const getEventMetrics = async (req, res) => {
     });
   } catch (error) {
     console.error("Error obteniendo métricas:", error);
-    res.status(500).json({ message: "Error obteniendo métricas" });
+    res.status(500).json({ message: "Error interno al obtener métricas" });
   }
 };
 
@@ -86,6 +97,10 @@ export const getEventMetricsByDate = async (req, res) => {
     const { eventId } = req.params;
     const { startDate, endDate } = req.query;
 
+    if (!isValidObjectId(eventId)) {
+      return res.status(400).json({ message: "ID de evento inválido" });
+    }
+
     if (!startDate || !endDate) {
       return res.status(400).json({
         message: "Debes proporcionar startDate y endDate en el query",
@@ -94,6 +109,9 @@ export const getEventMetricsByDate = async (req, res) => {
 
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: "Fechas inválidas" });
+    }
     end.setHours(23, 59, 59, 999);
 
     const totalViews = await EventView.countDocuments({
@@ -135,7 +153,9 @@ export const getEventMetricsByDate = async (req, res) => {
     });
   } catch (error) {
     console.error("Error obteniendo métricas filtradas:", error);
-    res.status(500).json({ message: "Error obteniendo métricas filtradas" });
+    res
+      .status(500)
+      .json({ message: "Error interno al obtener métricas filtradas" });
   }
 };
 
@@ -147,6 +167,10 @@ export const getEventDailyViews = async (req, res) => {
     const { eventId } = req.params;
     const { startDate, endDate } = req.query;
 
+    if (!isValidObjectId(eventId)) {
+      return res.status(400).json({ message: "ID de evento inválido" });
+    }
+
     if (!startDate || !endDate) {
       return res.status(400).json({
         message: "Debes proporcionar startDate y endDate en el query",
@@ -155,6 +179,9 @@ export const getEventDailyViews = async (req, res) => {
 
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: "Fechas inválidas" });
+    }
     end.setHours(23, 59, 59, 999);
 
     const dailyViews = await EventView.aggregate([
@@ -189,7 +216,9 @@ export const getEventDailyViews = async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error("Error obteniendo visitas por día:", error);
-    res.status(500).json({ message: "Error obteniendo visitas por día" });
+    res
+      .status(500)
+      .json({ message: "Error interno al obtener visitas por día" });
   }
 };
 
@@ -201,6 +230,10 @@ export const getEventTopViewers = async (req, res) => {
     const { eventId } = req.params;
     const { startDate, endDate, limit } = req.query;
 
+    if (!isValidObjectId(eventId)) {
+      return res.status(400).json({ message: "ID de evento inválido" });
+    }
+
     if (!startDate || !endDate) {
       return res.status(400).json({
         message: "Debes proporcionar startDate y endDate en el query",
@@ -209,7 +242,12 @@ export const getEventTopViewers = async (req, res) => {
 
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: "Fechas inválidas" });
+    }
     end.setHours(23, 59, 59, 999);
+
+    const viewerLimit = parseInt(limit, 10) || 10;
 
     const topViewers = await EventView.aggregate([
       {
@@ -226,7 +264,7 @@ export const getEventTopViewers = async (req, res) => {
         },
       },
       { $sort: { count: -1 } },
-      { $limit: parseInt(limit) || 10 },
+      { $limit: viewerLimit },
       {
         $lookup: {
           from: "users",
@@ -248,19 +286,21 @@ export const getEventTopViewers = async (req, res) => {
     res.status(200).json(topViewers);
   } catch (error) {
     console.error("Error obteniendo ranking de usuarios:", error);
-    res.status(500).json({ message: "Error obteniendo ranking de usuarios" });
+    res.status(500).json({ message: "Error interno al obtener ranking" });
   }
 };
+
 /**
- * Obtener todas las visitas detalladas por fecha (IP, referrer, etc.)
- *
- * ⚠️ En el futuro puedes usar un servicio de geolocalización (por ejemplo, ipapi.co o ipstack)
- *     para convertir la IP en ciudad/país y enriquecer esta información.
+ * Obtener visitas detalladas con IP, referrer, etc.
  */
 export const getEventDetailedViews = async (req, res) => {
   try {
     const { eventId } = req.params;
     const { startDate, endDate } = req.query;
+
+    if (!isValidObjectId(eventId)) {
+      return res.status(400).json({ message: "ID de evento inválido" });
+    }
 
     if (!startDate || !endDate) {
       return res.status(400).json({
@@ -270,6 +310,9 @@ export const getEventDetailedViews = async (req, res) => {
 
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: "Fechas inválidas" });
+    }
     end.setHours(23, 59, 59, 999);
 
     const views = await EventView.find({
@@ -296,8 +339,8 @@ export const getEventDetailedViews = async (req, res) => {
     );
   } catch (error) {
     console.error("Error obteniendo visitas detalladas:", error);
-    res.status(500).json({
-      message: "Error obteniendo visitas detalladas",
-    });
+    res
+      .status(500)
+      .json({ message: "Error interno al obtener visitas detalladas" });
   }
 };

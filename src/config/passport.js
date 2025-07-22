@@ -14,8 +14,6 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        console.log("Google profile:", JSON.stringify(profile, null, 2));
-
         // Buscar usuario existente por googleId
         let user = await User.findOne({ googleId: profile.id });
 

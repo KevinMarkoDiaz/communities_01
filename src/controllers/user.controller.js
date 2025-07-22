@@ -1,57 +1,81 @@
-import User from '../models/user.model.js';
-import { validationResult } from 'express-validator';
+import mongoose from "mongoose";
+import User from "../models/user.model.js";
+import { validationResult } from "express-validator";
 
-// Obtener todos los usuarios (solo admin)
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+/**
+ * Obtener todos los usuarios (admin)
+ */
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    const users = await User.find().select("-password");
     res.status(200).json(users);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ msg: 'Error del servidor' });
+    console.error("Error en getAllUsers:", error);
+    res.status(500).json({ message: "Error del servidor al obtener usuarios" });
   }
 };
 
-// Obtener un usuario por ID con populate completo
+/**
+ * Obtener usuario por ID (con relaciones)
+ */
 export const getUserById = async (req, res) => {
+  const { id } = req.params;
+
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ message: "ID de usuario inválido" });
+  }
+
   try {
-    const user = await User.findById(req.params.id)
-      .select('-password')
-      .populate('community') // comunidad principal
-      .populate('communities') // si es admin
-      .populate('businesses')
-      .populate('events')
-      .populate('categories');
+    const user = await User.findById(id)
+      .select("-password")
+      .populate("community")
+      .populate("communities")
+      .populate("businesses")
+      .populate("events")
+      .populate("categories");
 
     if (!user) {
-      return res.status(404).json({ msg: 'Usuario no encontrado' });
+      return res.status(404).json({ message: "Usuario no encontrado" });
     }
 
     res.status(200).json(user);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ msg: 'Error del servidor' });
+    console.error("Error en getUserById:", error);
+    res.status(500).json({ message: "Error del servidor al obtener usuario" });
   }
 };
 
-// Actualizar un usuario por ID (perfil)
+/**
+ * Actualizar perfil de usuario (propietario o admin)
+ */
 export const updateUser = async (req, res) => {
-  const errors = validationResult(req); // opcional si usás Zod
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
   const { id } = req.params;
 
-  if (req.user.id !== id && req.user.role !== 'admin') {
-    return res.status(403).json({ msg: 'No autorizado' });
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ message: "ID inválido" });
+  }
+
+  // Validación express-validator (si estás usando)
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res
+      .status(400)
+      .json({ message: "Datos inválidos", errors: errors.array() });
+  }
+
+  if (req.user.id !== id && req.user.role !== "admin") {
+    return res
+      .status(403)
+      .json({ message: "No autorizado para editar este perfil" });
   }
 
   try {
     const user = await User.findById(id);
-    if (!user) return res.status(404).json({ msg: 'Usuario no encontrado' });
+    if (!user)
+      return res.status(404).json({ message: "Usuario no encontrado" });
 
-    // Campos permitidos a actualizar
     const {
       name,
       lastName,
@@ -63,6 +87,7 @@ export const updateUser = async (req, res) => {
       community,
     } = req.body;
 
+    // Solo campos permitidos
     if (name) user.name = name;
     if (lastName) user.lastName = lastName;
     if (title) user.title = title;
@@ -73,11 +98,10 @@ export const updateUser = async (req, res) => {
     if (community) user.community = community;
 
     user.updatedAt = Date.now();
-
     const updatedUser = await user.save();
 
     res.status(200).json({
-      msg: 'Usuario actualizado',
+      message: "Usuario actualizado",
       user: {
         id: updatedUser._id,
         name: updatedUser.name,
@@ -93,45 +117,65 @@ export const updateUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ msg: 'Error del servidor' });
+    console.error("Error en updateUser:", error);
+    res
+      .status(500)
+      .json({ message: "Error del servidor al actualizar usuario" });
   }
 };
 
-// Eliminar un usuario (solo admin)
+/**
+ * Eliminar usuario (admin)
+ */
 export const deleteUser = async (req, res) => {
   const { id } = req.params;
 
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ msg: 'No autorizado' });
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ message: "ID inválido" });
+  }
+
+  if (req.user.role !== "admin") {
+    return res
+      .status(403)
+      .json({ message: "Solo un admin puede eliminar usuarios" });
   }
 
   try {
     const deletedUser = await User.findByIdAndDelete(id);
     if (!deletedUser) {
-      return res.status(404).json({ msg: 'Usuario no encontrado' });
+      return res.status(404).json({ message: "Usuario no encontrado" });
     }
 
-    res.status(200).json({ msg: 'Usuario eliminado correctamente' });
+    res.status(200).json({ message: "Usuario eliminado correctamente" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ msg: 'Error del servidor' });
+    console.error("Error en deleteUser:", error);
+    res.status(500).json({ message: "Error del servidor al eliminar usuario" });
   }
 };
+
+/**
+ * Buscar usuarios por nombre
+ */
 export const buscarUsuariosPorNombre = async (req, res) => {
+  const { name } = req.query;
+
+  if (!name || name.trim().length < 2) {
+    return res
+      .status(400)
+      .json({
+        message: "El nombre de búsqueda debe tener al menos 2 caracteres",
+      });
+  }
+
   try {
-    const { name } = req.query;
-
-    if (!name || name.trim().length < 2) {
-      return res.status(400).json({ msg: "Nombre demasiado corto para buscar." });
-    }
-
-    const regex = new RegExp(name, "i"); // búsqueda insensible a mayúsculas/minúsculas
-    const users = await User.find({ name: regex }).select("name email profileImage");
+    const regex = new RegExp(name.trim(), "i");
+    const users = await User.find({ name: regex }).select(
+      "name email profileImage"
+    );
 
     res.json({ users });
   } catch (error) {
-    console.error("Error al buscar usuarios:", error);
-    res.status(500).json({ msg: "Error al buscar usuarios." });
+    console.error("Error en buscarUsuariosPorNombre:", error);
+    res.status(500).json({ message: "Error al buscar usuarios" });
   }
 };

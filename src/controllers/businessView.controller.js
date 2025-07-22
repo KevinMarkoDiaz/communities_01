@@ -5,28 +5,39 @@ import Follow from "../models/follow.model.js";
 import Rating from "../models/rating.model.js";
 import Comment from "../models/comment.model.js";
 
+// Utilidad para validar ObjectId
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+// Utilidad para parsear rangos de fechas
+const parseDateRange = (startDate, endDate) => {
+  if (!startDate || !endDate) return null;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+};
+
 /**
  * Registrar una visita
  */
 export const registerBusinessView = async (req, res) => {
   try {
     const { businessId } = req.params;
+    if (!isValidObjectId(businessId)) {
+      return res.status(400).json({ msg: "ID de negocio inválido" });
+    }
 
-    // 1. Verificar si el negocio existe
-    const negocio = await Business.findById(businessId).select("owner");
+    const negocio = await Business.findById(businessId).select("owner").lean();
     if (!negocio) {
       return res.status(404).json({ msg: "Negocio no encontrado" });
     }
 
-    // 2. Ignorar si el visitante es el dueño
     if (req.user && req.user._id.toString() === negocio.owner.toString()) {
-      console.log("👤 Visitante es el owner. No se registrará vista.");
       return res
         .status(200)
         .json({ msg: "Vista ignorada por ser el propietario." });
     }
 
-    // 3. Registrar la vista
     const view = new BusinessView({
       business: businessId,
       viewer: req.user ? req.user._id : null,
@@ -37,11 +48,9 @@ export const registerBusinessView = async (req, res) => {
     });
 
     await view.save();
-
-    console.log("✅ Vista registrada:", view._id);
     res.status(201).json({ msg: "Vista registrada correctamente." });
   } catch (error) {
-    console.error("❌ Error al registrar vista:", error);
+    console.error("❌ Error en registerBusinessView:", error);
     res.status(500).json({ msg: "Error al registrar la vista" });
   }
 };
@@ -52,28 +61,26 @@ export const registerBusinessView = async (req, res) => {
 export const getBusinessMetrics = async (req, res) => {
   try {
     const { businessId } = req.params;
+    if (!isValidObjectId(businessId)) {
+      return res.status(400).json({ msg: "ID de negocio inválido" });
+    }
 
-    const totalViews = await BusinessView.countDocuments({
-      business: businessId,
-    });
-
-    const anonymousViews = await BusinessView.countDocuments({
-      business: businessId,
-      isAnonymous: true,
-    });
-
-    const uniqueUsers = await BusinessView.distinct("viewer", {
-      business: businessId,
-      isAnonymous: false,
-    });
-
-    const lastVisitors = await BusinessView.find({
-      business: businessId,
-      isAnonymous: false,
-    })
-      .sort({ viewedAt: -1 })
-      .limit(10)
-      .populate("viewer", "name");
+    const [totalViews, anonymousViews, uniqueUsers, lastVisitors] =
+      await Promise.all([
+        BusinessView.countDocuments({ business: businessId }),
+        BusinessView.countDocuments({
+          business: businessId,
+          isAnonymous: true,
+        }),
+        BusinessView.distinct("viewer", {
+          business: businessId,
+          isAnonymous: false,
+        }),
+        BusinessView.find({ business: businessId, isAnonymous: false })
+          .sort({ viewedAt: -1 })
+          .limit(10)
+          .populate("viewer", "name"),
+      ]);
 
     res.status(200).json({
       totalViews,
@@ -85,7 +92,7 @@ export const getBusinessMetrics = async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("Error obteniendo métricas:", error);
+    console.error("❌ Error en getBusinessMetrics:", error);
     res.status(500).json({ message: "Error obteniendo métricas" });
   }
 };
@@ -96,43 +103,37 @@ export const getBusinessMetrics = async (req, res) => {
 export const getBusinessMetricsByDate = async (req, res) => {
   try {
     const { businessId } = req.params;
-    const { startDate, endDate } = req.query;
+    const range = parseDateRange(req.query.startDate, req.query.endDate);
+    if (!range)
+      return res
+        .status(400)
+        .json({ message: "startDate y endDate requeridos" });
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({
-        message: "Debes proporcionar startDate y endDate en el query",
-      });
-    }
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-
-    const totalViews = await BusinessView.countDocuments({
-      business: businessId,
-      viewedAt: { $gte: start, $lte: end },
-    });
-
-    const anonymousViews = await BusinessView.countDocuments({
-      business: businessId,
-      isAnonymous: true,
-      viewedAt: { $gte: start, $lte: end },
-    });
-
-    const uniqueUsers = await BusinessView.distinct("viewer", {
-      business: businessId,
-      isAnonymous: false,
-      viewedAt: { $gte: start, $lte: end },
-    });
-
-    const lastVisitors = await BusinessView.find({
-      business: businessId,
-      isAnonymous: false,
-      viewedAt: { $gte: start, $lte: end },
-    })
-      .sort({ viewedAt: -1 })
-      .limit(10)
-      .populate("viewer", "name");
+    const [totalViews, anonymousViews, uniqueUsers, lastVisitors] =
+      await Promise.all([
+        BusinessView.countDocuments({
+          business: businessId,
+          viewedAt: { $gte: range.start, $lte: range.end },
+        }),
+        BusinessView.countDocuments({
+          business: businessId,
+          isAnonymous: true,
+          viewedAt: { $gte: range.start, $lte: range.end },
+        }),
+        BusinessView.distinct("viewer", {
+          business: businessId,
+          isAnonymous: false,
+          viewedAt: { $gte: range.start, $lte: range.end },
+        }),
+        BusinessView.find({
+          business: businessId,
+          isAnonymous: false,
+          viewedAt: { $gte: range.start, $lte: range.end },
+        })
+          .sort({ viewedAt: -1 })
+          .limit(10)
+          .populate("viewer", "name"),
+      ]);
 
     res.status(200).json({
       totalViews,
@@ -144,7 +145,7 @@ export const getBusinessMetricsByDate = async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("Error obteniendo métricas filtradas:", error);
+    console.error("❌ Error en getBusinessMetricsByDate:", error);
     res.status(500).json({ message: "Error obteniendo métricas filtradas" });
   }
 };
@@ -155,23 +156,17 @@ export const getBusinessMetricsByDate = async (req, res) => {
 export const getBusinessDailyViews = async (req, res) => {
   try {
     const { businessId } = req.params;
-    const { startDate, endDate } = req.query;
-
-    if (!startDate || !endDate) {
-      return res.status(400).json({
-        message: "Debes proporcionar startDate y endDate en el query",
-      });
-    }
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    const range = parseDateRange(req.query.startDate, req.query.endDate);
+    if (!range)
+      return res
+        .status(400)
+        .json({ message: "startDate y endDate requeridos" });
 
     const dailyViews = await BusinessView.aggregate([
       {
         $match: {
           business: new mongoose.Types.ObjectId(businessId),
-          viewedAt: { $gte: start, $lte: end },
+          viewedAt: { $gte: range.start, $lte: range.end },
         },
       },
       {
@@ -198,7 +193,7 @@ export const getBusinessDailyViews = async (req, res) => {
 
     res.status(200).json(result);
   } catch (error) {
-    console.error("Error obteniendo visitas por día:", error);
+    console.error("❌ Error en getBusinessDailyViews:", error);
     res.status(500).json({ message: "Error obteniendo visitas por día" });
   }
 };
@@ -211,15 +206,11 @@ export const getBusinessTopViewers = async (req, res) => {
     const { businessId } = req.params;
     const { startDate, endDate, limit } = req.query;
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({
-        message: "Debes proporcionar startDate y endDate en el query",
-      });
-    }
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    const range = parseDateRange(startDate, endDate);
+    if (!range)
+      return res
+        .status(400)
+        .json({ message: "startDate y endDate requeridos" });
 
     const parsedLimit = Math.max(parseInt(limit) || 10, 1);
 
@@ -228,15 +219,10 @@ export const getBusinessTopViewers = async (req, res) => {
         $match: {
           business: new mongoose.Types.ObjectId(businessId),
           isAnonymous: false,
-          viewedAt: { $gte: start, $lte: end },
+          viewedAt: { $gte: range.start, $lte: range.end },
         },
       },
-      {
-        $group: {
-          _id: "$viewer",
-          count: { $sum: 1 },
-        },
-      },
+      { $group: { _id: "$viewer", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: parsedLimit },
       {
@@ -259,7 +245,7 @@ export const getBusinessTopViewers = async (req, res) => {
 
     res.status(200).json(topViewers);
   } catch (error) {
-    console.error("Error obteniendo ranking de usuarios:", error);
+    console.error("❌ Error en getBusinessTopViewers:", error);
     res.status(500).json({ message: "Error obteniendo ranking de usuarios" });
   }
 };
@@ -268,55 +254,46 @@ export const getBusinessTopViewers = async (req, res) => {
  * Resumen de seguidores, ratings y comentarios
  */
 export const getBusinessSummary = async (req, res) => {
-  const { businessId } = req.params;
-
   try {
-    const followersCount = await Follow.countDocuments({
-      entityId: new mongoose.Types.ObjectId(businessId),
-      entityType: "business",
-    });
+    const { businessId } = req.params;
+    if (!isValidObjectId(businessId)) {
+      return res.status(400).json({ msg: "ID de negocio inválido" });
+    }
 
-    const ratingsAggregation = await Rating.aggregate([
-      {
-        $match: {
+    const [followersCount, ratingsAgg, avgRatingAgg, commentsCount] =
+      await Promise.all([
+        Follow.countDocuments({
+          entityId: new mongoose.Types.ObjectId(businessId),
+          entityType: "business",
+        }),
+        Rating.aggregate([
+          {
+            $match: {
+              targetId: new mongoose.Types.ObjectId(businessId),
+              targetType: "business",
+            },
+          },
+          { $group: { _id: "$value", count: { $sum: 1 } } },
+        ]),
+        Rating.aggregate([
+          {
+            $match: {
+              targetId: new mongoose.Types.ObjectId(businessId),
+              targetType: "business",
+            },
+          },
+          { $group: { _id: null, avgRating: { $avg: "$value" } } },
+        ]),
+        Comment.countDocuments({
           targetId: new mongoose.Types.ObjectId(businessId),
           targetType: "business",
-        },
-      },
-      {
-        $group: {
-          _id: "$value",
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const avgRatingResult = await Rating.aggregate([
-      {
-        $match: {
-          targetId: new mongoose.Types.ObjectId(businessId),
-          targetType: "business",
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          avgRating: { $avg: "$value" },
-        },
-      },
-    ]);
-
-    const averageRating = avgRatingResult[0]?.avgRating || null;
-
-    const commentsCount = await Comment.countDocuments({
-      targetId: new mongoose.Types.ObjectId(businessId),
-      targetType: "business",
-    });
+        }),
+      ]);
 
     res.status(200).json({
       followersCount,
-      ratings: ratingsAggregation,
-      averageRating,
+      ratings: ratingsAgg,
+      averageRating: avgRatingAgg[0]?.avgRating || null,
       commentsCount,
     });
   } catch (error) {
@@ -326,47 +303,20 @@ export const getBusinessSummary = async (req, res) => {
 };
 
 /**
- * Listar visitas con IPs en un rango de fechas
+ * Visitas con IPs
  */
-
-/**
- * 🚀 NOTA DE IMPLEMENTACIÓN FUTURA:
- *
- * Este endpoint devuelve la IP de cada visita registrada.
- * Para poder ubicar geográficamente desde qué ciudad o país se realizaron las visitas,
- * será necesario integrar un servicio de geolocalización por IP (por ejemplo, ipinfo.io, ipstack o MaxMind).
- *
- * Flujo recomendado:
- * 1️⃣ Al registrar cada vista (en registerBusinessView), consultar la API de geolocalización con la IP.
- * 2️⃣ Guardar en el modelo los campos:
- *     - country
- *     - region
- *     - city
- *     - latitude
- *     - longitude
- * 3️⃣ Mostrar esta información en los reportes y métricas del negocio.
- *
- * Con esta base, se podrán generar estadísticas sobre la procedencia de las visitas.
- */
-
 export const getBusinessVisitsWithIPs = async (req, res) => {
   try {
     const { businessId } = req.params;
-    const { startDate, endDate } = req.query;
-
-    if (!startDate || !endDate) {
-      return res.status(400).json({
-        message: "Debes proporcionar startDate y endDate en el query",
-      });
-    }
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    const range = parseDateRange(req.query.startDate, req.query.endDate);
+    if (!range)
+      return res
+        .status(400)
+        .json({ message: "startDate y endDate requeridos" });
 
     const visits = await BusinessView.find({
       business: businessId,
-      viewedAt: { $gte: start, $lte: end },
+      viewedAt: { $gte: range.start, $lte: range.end },
     })
       .sort({ viewedAt: -1 })
       .populate("viewer", "name email");
@@ -380,9 +330,7 @@ export const getBusinessVisitsWithIPs = async (req, res) => {
 
     res.status(200).json(result);
   } catch (error) {
-    console.error("Error obteniendo visitas con IPs:", error);
-    res.status(500).json({
-      message: "Error al obtener visitas con IPs",
-    });
+    console.error("❌ Error en getBusinessVisitsWithIPs:", error);
+    res.status(500).json({ message: "Error al obtener visitas con IPs" });
   }
 };

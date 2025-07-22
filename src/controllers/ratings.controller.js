@@ -1,11 +1,19 @@
-import Rating from "../models/rating.model.js";
 import mongoose from "mongoose";
+import Rating from "../models/rating.model.js";
 import { ratingSchema } from "../schemas/rating.schema.js";
 
-// ✅ Crear o actualizar una calificación
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+/**
+ * Crear o actualizar una calificación (upsert)
+ */
 export const upsertRating = async (req, res) => {
   try {
     const validated = ratingSchema.parse(req.body);
+
+    if (!isValidObjectId(validated.targetId)) {
+      return res.status(400).json({ message: "ID de objetivo inválido" });
+    }
 
     const rating = await Rating.findOneAndUpdate(
       {
@@ -17,16 +25,25 @@ export const upsertRating = async (req, res) => {
       { new: true, upsert: true }
     );
 
-    res.status(200).json(rating);
+    res.status(200).json({ message: "Rating registrado", data: rating });
   } catch (error) {
-    console.error("Error creando rating:", error);
-    return res.status(400).json({ error: error.errors || error.message });
+    console.error("Error al crear o actualizar rating:", error);
+    const errMsg = error.errors || error.message || "Error inesperado";
+    res
+      .status(400)
+      .json({ message: "Error al registrar rating", error: errMsg });
   }
 };
 
-// ✅ Obtener el promedio de calificación
+/**
+ * Obtener el promedio de calificación para un target
+ */
 export const getAverageRating = async (req, res) => {
   const { targetType, targetId } = req.params;
+
+  if (!targetType || !targetId || !isValidObjectId(targetId)) {
+    return res.status(400).json({ message: "Parámetros inválidos" });
+  }
 
   try {
     const result = await Rating.aggregate([
@@ -51,16 +68,23 @@ export const getAverageRating = async (req, res) => {
 
     res.json({ avg: result[0].avg, count: result[0].count });
   } catch (error) {
-    console.error("Error obteniendo promedio:", error);
-    res
-      .status(500)
-      .json({ error: "Error al obtener promedio de calificación" });
+    console.error("Error al obtener promedio de rating:", error);
+    res.status(500).json({
+      message: "Error interno al calcular promedio",
+      error: error.message,
+    });
   }
 };
 
-// ✅ Obtener todas las calificaciones (opcional)
+/**
+ * Obtener todas las calificaciones de un target
+ */
 export const getRatings = async (req, res) => {
   const { targetType, targetId } = req.params;
+
+  if (!targetType || !targetId || !isValidObjectId(targetId)) {
+    return res.status(400).json({ message: "Parámetros inválidos" });
+  }
 
   try {
     const ratings = await Rating.find({
@@ -68,9 +92,9 @@ export const getRatings = async (req, res) => {
       targetId,
     }).populate("author", "name profileImage");
 
-    res.json(ratings);
+    res.json({ ratings });
   } catch (error) {
-    console.error("Error obteniendo ratings:", error);
-    res.status(500).json({ error: "Error al obtener ratings" });
+    console.error("Error al obtener ratings:", error);
+    res.status(500).json({ message: "Error interno al obtener ratings" });
   }
 };

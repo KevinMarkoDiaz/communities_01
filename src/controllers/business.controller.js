@@ -6,6 +6,15 @@ import { geocodeAddress } from "../utils/geocode.js";
 import businessView from "../models/businessView.model.js";
 import Follow from "../models/follow.model.js";
 
+// Utils
+const parseJSONField = (field, fallback = {}) => {
+  try {
+    return typeof field === "string" ? JSON.parse(field) : field;
+  } catch {
+    return fallback;
+  }
+};
+
 /**
  * Crear un nuevo negocio
  */
@@ -27,19 +36,21 @@ export const createBusiness = async (req, res) => {
       openingHours,
       tags,
       isVerified,
+      featuredImage = "",
+      profileImage = "",
+      images = [],
     } = req.body;
 
-    try {
-      if (typeof location === "string") location = JSON.parse(location);
-      if (typeof contact === "string") contact = JSON.parse(contact);
-      if (typeof openingHours === "string")
-        openingHours = JSON.parse(openingHours);
-      if (typeof tags === "string") tags = JSON.parse(tags);
-    } catch (err) {
-      console.error("❌ Error al parsear campos JSON:", err);
+    location = parseJSONField(location);
+    contact = parseJSONField(contact);
+    openingHours = parseJSONField(openingHours);
+    tags = parseJSONField(tags);
+    images = parseJSONField(images);
+
+    if (!location?.address || !location?.city || !location?.state) {
       return res
         .status(400)
-        .json({ msg: "Formato inválido en los datos enviados." });
+        .json({ msg: "Dirección incompleta para geocodificación." });
     }
 
     const communityDoc = await Community.findById(community);
@@ -50,12 +61,7 @@ export const createBusiness = async (req, res) => {
     const fullAddress = `${location.address}, ${location.city}, ${
       location.state
     }, ${location.country || "USA"}`;
-    const coordinates = await geocodeAddress(fullAddress);
-    location.coordinates = coordinates;
-
-    const featuredImageUrl = req.body.featuredImage || "";
-    const profileImageUrl = req.body.profileImage || "";
-    const galleryUrls = req.body.images || [];
+    location.coordinates = await geocodeAddress(fullAddress);
 
     const newBusiness = new Business({
       name,
@@ -68,17 +74,16 @@ export const createBusiness = async (req, res) => {
       tags,
       isVerified: isVerified ?? false,
       owner: req.user.id,
-      featuredImage: featuredImageUrl,
-      profileImage: profileImageUrl,
-      images: galleryUrls,
+      featuredImage,
+      profileImage,
+      images,
     });
 
     await newBusiness.save();
 
-    const populatedBusiness = await Business.findById(newBusiness._id)
-      .populate("category")
-      .populate("community")
-      .populate("owner");
+    const populatedBusiness = await Business.findById(newBusiness._id).populate(
+      "category community owner"
+    );
 
     res.status(201).json({
       msg: "Negocio creado exitosamente.",
@@ -95,14 +100,13 @@ export const createBusiness = async (req, res) => {
  */
 export const getAllBusinesses = async (req, res) => {
   try {
-    const businesses = await Business.find()
-      .populate("category")
-      .populate("community")
-      .populate("owner");
+    const businesses = await Business.find().populate(
+      "category community owner"
+    );
 
     res.status(200).json({ businesses });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en getAllBusinesses:", error);
     res.status(500).json({ msg: "Error al obtener los negocios." });
   }
 };
@@ -112,14 +116,14 @@ export const getAllBusinesses = async (req, res) => {
  */
 export const getBusinessById = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id)
-      .populate("category")
-      .populate("community")
-      .populate("owner");
+    const business = await Business.findById(req.params.id).populate(
+      "category community owner"
+    );
 
     if (!business) {
       return res.status(404).json({ msg: "Negocio no encontrado." });
     }
+
     await businessView.create({
       business: business._id,
       viewer: req.user ? req.user._id : null,
@@ -129,7 +133,7 @@ export const getBusinessById = async (req, res) => {
 
     res.status(200).json({ business });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en getBusinessById:", error);
     res.status(500).json({ msg: "Error al obtener el negocio." });
   }
 };
@@ -138,60 +142,37 @@ export const getBusinessById = async (req, res) => {
  * Actualizar un negocio
  */
 export const updateBusiness = async (req, res) => {
-  let {
-    name,
-    description,
-    category,
-    community,
-    location,
-    contact,
-    openingHours,
-    images,
-    tags,
-    isVerified,
-    featuredImage,
-    profileImage,
-    owner,
-  } = req.body;
-
   try {
-    if (typeof location === "string") location = JSON.parse(location);
-    if (typeof contact === "string") contact = JSON.parse(contact);
-    if (typeof openingHours === "string")
-      openingHours = JSON.parse(openingHours);
-    if (typeof tags === "string") tags = JSON.parse(tags);
-    if (typeof images === "string") images = JSON.parse(images);
-  } catch (err) {
-    console.error("❌ Error al parsear campos JSON:", err);
-    return res
-      .status(400)
-      .json({ msg: "Formato inválido en los datos enviados." });
-  }
+    let {
+      name,
+      description,
+      category,
+      community,
+      location,
+      contact,
+      openingHours,
+      tags,
+      images,
+      isVerified,
+      featuredImage,
+      profileImage,
+      owner,
+    } = req.body;
 
-  if (location?.address && location?.city && location?.state) {
-    try {
-      const fullAddress = `${location.address}, ${location.city}, ${
-        location.state
-      }, ${location.country || "USA"}`;
-      const coords = await geocodeAddress(fullAddress);
-      location.coordinates = coords;
-    } catch (err) {
-      console.error("❌ Error al geocodificar:", err);
-      return res.status(400).json({
-        msg: "No se pudo obtener coordenadas para la nueva dirección.",
-      });
-    }
-  }
+    location = parseJSONField(location);
+    contact = parseJSONField(contact);
+    openingHours = parseJSONField(openingHours);
+    tags = parseJSONField(tags);
+    images = parseJSONField(images);
 
-  try {
     const business = await Business.findById(req.params.id);
-    if (!business) {
+    if (!business)
       return res.status(404).json({ msg: "Negocio no encontrado." });
-    }
 
-    const esPropietario = business.owner.toString() === req.user.id;
-    const esAdmin = req.user.role === "admin";
-    if (!esPropietario && !esAdmin) {
+    const isOwner = business.owner.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+
+    if (!isOwner && !isAdmin) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para actualizar este negocio." });
@@ -203,46 +184,54 @@ export const updateBusiness = async (req, res) => {
         .json({ msg: "No puedes cambiar el propietario del negocio." });
     }
 
-    if (req.files?.featuredImage?.[0]) {
-      featuredImage = req.body.featuredImage;
-    } else if (req.body.featuredImageUrl) {
-      featuredImage = req.body.featuredImageUrl;
-    }
-
-    if (req.files?.profileImage?.[0]) {
-      profileImage = req.body.profileImage;
-    } else if (req.body.profileImageUrl) {
-      profileImage = req.body.profileImageUrl;
-    }
-
-    if (req.files?.images?.length) {
-      // Si tienes lógica de manejo de galería aquí
-    } else if (req.body.existingImages) {
+    if (location?.address && location?.city && location?.state) {
       try {
-        images = JSON.parse(req.body.existingImages);
+        const fullAddress = `${location.address}, ${location.city}, ${
+          location.state
+        }, ${location.country || "USA"}`;
+        location.coordinates = await geocodeAddress(fullAddress);
       } catch (err) {
-        console.warn("❗Error al parsear existingImages:", err);
-        images = [];
+        console.error("❌ Error al geocodificar:", err);
+        return res
+          .status(400)
+          .json({ msg: "No se pudo obtener coordenadas para la dirección." });
       }
     }
 
-    // Actualizar campos
-    if (name) business.name = name;
-    if (description) business.description = description;
-    if (category) business.category = category;
-    if (community) business.community = community;
-    if (location) business.location = location;
-    if (contact) business.contact = contact;
-    if (openingHours) business.openingHours = openingHours;
-    if (tags) business.tags = tags;
-    if (typeof isVerified === "boolean") business.isVerified = isVerified;
-    if (featuredImage) business.featuredImage = featuredImage;
-    if (profileImage) business.profileImage = profileImage;
-    if (images) business.images = images;
+    // Manejo de imágenes nuevas o existentes
+    featuredImage =
+      req.body.featuredImage ||
+      req.body.featuredImageUrl ||
+      business.featuredImage;
+    profileImage =
+      req.body.profileImage ||
+      req.body.profileImageUrl ||
+      business.profileImage;
+
+    if (req.body.existingImages) {
+      images = parseJSONField(req.body.existingImages, business.images);
+    }
+
+    // Asignar campos actualizados
+    Object.assign(business, {
+      name,
+      description,
+      category,
+      community,
+      location,
+      contact,
+      openingHours,
+      tags,
+      isVerified:
+        typeof isVerified === "boolean" ? isVerified : business.isVerified,
+      featuredImage,
+      profileImage,
+      images,
+    });
 
     await business.save();
 
-    // ✅ Crear notificaciones a seguidores del negocio
+    // Notificar a seguidores
     const followers = await Follow.find({
       entityType: "business",
       entityId: business._id,
@@ -260,15 +249,11 @@ export const updateBusiness = async (req, res) => {
       }));
 
       await Notification.insertMany(notifications);
-      console.log(
-        `📢 Notificaciones creadas para ${followers.length} seguidores.`
-      );
     }
 
-    const populated = await Business.findById(business._id)
-      .populate("category")
-      .populate("community")
-      .populate("owner");
+    const populated = await Business.findById(business._id).populate(
+      "category community owner"
+    );
 
     res.status(200).json({
       msg: "Negocio actualizado exitosamente.",
@@ -286,29 +271,28 @@ export const updateBusiness = async (req, res) => {
 export const deleteBusiness = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id);
-    if (!business) {
+    if (!business)
       return res.status(404).json({ msg: "Negocio no encontrado." });
-    }
 
-    const esPropietario = business.owner.toString() === req.user.id;
-    const esAdmin = req.user.role === "admin";
-    if (!esPropietario && !esAdmin) {
+    const isOwner = business.owner.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+
+    if (!isOwner && !isAdmin) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para eliminar este negocio." });
     }
 
     await business.deleteOne();
-
     res.status(200).json({ msg: "Negocio eliminado exitosamente." });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en deleteBusiness:", error);
     res.status(500).json({ msg: "Error al eliminar el negocio." });
   }
 };
 
 /**
- * Obtener negocios creados por el usuario autenticado
+ * Obtener negocios del usuario autenticado
  */
 export const getMyBusinesses = async (req, res) => {
   try {
@@ -318,23 +302,23 @@ export const getMyBusinesses = async (req, res) => {
         .json({ msg: "No tienes permisos para ver tus negocios." });
     }
 
-    const businesses = await Business.find({ owner: req.user.id })
-      .populate("category")
-      .populate("community")
-      .populate("owner");
+    const businesses = await Business.find({ owner: req.user.id }).populate(
+      "category community owner"
+    );
 
     res.status(200).json({ businesses });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en getMyBusinesses:", error);
     res.status(500).json({ msg: "Error al obtener tus negocios." });
   }
 };
 
+/**
+ * Obtener promociones por negocio
+ */
 export const getPromotionsByBusiness = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const negocio = await Business.findById(id)
+    const negocio = await Business.findById(req.params.id)
       .populate({
         path: "promotions",
         populate: [
@@ -347,18 +331,20 @@ export const getPromotionsByBusiness = async (req, res) => {
     if (!negocio) {
       return res.status(404).json({ msg: "Negocio no encontrado" });
     }
+
     res.json({ promotions: negocio.promotions });
   } catch (error) {
-    console.error("❌ Error al obtener promociones del negocio:", error);
+    console.error("❌ Error en getPromotionsByBusiness:", error);
     res.status(500).json({ msg: "Error interno del servidor" });
   }
 };
 
-// ✅ Alternar like
+/**
+ * Alternar like a un negocio
+ */
 export const toggleLikeBusiness = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id);
-
     if (!business) {
       return res.status(404).json({ error: "Negocio no encontrado" });
     }
@@ -379,7 +365,7 @@ export const toggleLikeBusiness = async (req, res) => {
       liked: index === -1,
     });
   } catch (error) {
-    console.error("Error al togglear like:", error);
+    console.error("❌ Error en toggleLikeBusiness:", error);
     res.status(500).json({ error: "Error al procesar el me gusta" });
   }
 };

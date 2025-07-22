@@ -1,23 +1,42 @@
 import { validationResult } from "express-validator";
 import Category from "../models/category.model.js";
-import userModel from "../models/user.model.js";
+import User from "../models/user.model.js";
+import mongoose from "mongoose";
+
+// 🔧 Validación rápida de ObjectId
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 /**
  * Crear una nueva categoría.
- * Solo pueden hacerlo usuarios autenticados con rol adecuado.
  */
 export const createCategory = async (req, res) => {
   try {
-    const data = JSON.parse(req.body.data); // ⬅️ Asegurate que esté así
+    if (!req.body.data) {
+      return res.status(400).json({ msg: "Faltan datos en la solicitud." });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(req.body.data);
+    } catch (parseErr) {
+      return res.status(400).json({ msg: "Formato JSON inválido en 'data'." });
+    }
+
     const { name, description } = data;
 
-    const user = await userModel.findById(req.user.id);
-    if (!user) return res.status(401).json({ msg: "Usuario no encontrado" });
+    if (!name) {
+      return res.status(400).json({ msg: "El nombre es obligatorio." });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(401).json({ msg: "Usuario no encontrado." });
+
+    const icon = req.body.profileImage || ""; // Asumimos subida por Cloudinary
 
     const category = new Category({
       name,
       description,
-      icon: req.body.profileImage || "", // ya viene desde el middleware Cloudinary
+      icon,
       createdBy: user._id,
       createdByName: user.name,
       createdByRole: user.role,
@@ -27,7 +46,7 @@ export const createCategory = async (req, res) => {
     return res.status(201).json({ msg: "Categoría creada", category });
   } catch (error) {
     console.error("❌ Error en createCategory:", error);
-    return res.status(500).json({ msg: "Error interno", error: error.message });
+    return res.status(500).json({ msg: "Error interno del servidor" });
   }
 };
 
@@ -42,7 +61,7 @@ export const getAllCategories = async (req, res) => {
     );
     res.status(200).json({ categories });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en getAllCategories:", error);
     res.status(500).json({ msg: "Error al obtener las categorías." });
   }
 };
@@ -52,39 +71,44 @@ export const getAllCategories = async (req, res) => {
  */
 export const getCategoryById = async (req, res) => {
   try {
-    const category = await Category.findById(req.params.id).populate(
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ msg: "ID de categoría inválido." });
+    }
+
+    const category = await Category.findById(id).populate(
       "createdBy",
       "name email"
     );
     if (!category) {
       return res.status(404).json({ msg: "Categoría no encontrada." });
     }
+
     res.status(200).json({ category });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en getCategoryById:", error);
     res.status(500).json({ msg: "Error al obtener la categoría." });
   }
 };
 
 /**
  * Actualizar una categoría.
- * Solo el creador o un admin puede hacerlo.
  */
 export const updateCategory = async (req, res) => {
-  const errors = validationResult(req); // ⚠️ omití esto si ya usás Zod
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+  const { id } = req.params;
+  const { name, icon, description, createdBy, createdByName, createdByRole } =
+    req.body;
+
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ msg: "ID de categoría inválido." });
   }
 
-  const { name, icon, description } = req.body;
-
   try {
-    const category = await Category.findById(req.params.id);
+    const category = await Category.findById(id);
     if (!category) {
       return res.status(404).json({ msg: "Categoría no encontrada." });
     }
 
-    // Validar permisos
     const esCreador = category.createdBy.toString() === req.user.id;
     const esAdmin = req.user.role === "admin";
     if (!esCreador && !esAdmin) {
@@ -93,49 +117,47 @@ export const updateCategory = async (req, res) => {
         .json({ msg: "No tienes permisos para actualizar esta categoría." });
     }
 
-    // ❌ Bloquear edición de campos protegidos
-    if (
-      req.body.createdBy ||
-      req.body.createdByName ||
-      req.body.createdByRole
-    ) {
-      return res.status(400).json({
-        msg: "No se pueden modificar los datos de creación de la categoría.",
-      });
+    if (createdBy || createdByName || createdByRole) {
+      return res
+        .status(400)
+        .json({ msg: "No se pueden modificar los datos del creador." });
     }
 
-    // ✅ Actualizar solo campos permitidos
     if (name) category.name = name;
     if (icon) category.icon = icon;
     if (description) category.description = description;
 
     await category.save();
 
-    res.status(200).json({
-      msg: "Categoría actualizada correctamente.",
-      category,
-    });
+    res
+      .status(200)
+      .json({ msg: "Categoría actualizada correctamente.", category });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en updateCategory:", error);
     res.status(500).json({ msg: "Error al actualizar la categoría." });
   }
 };
 
 /**
  * Eliminar una categoría.
- * Solo el creador o un admin puede hacerlo.
  */
 export const deleteCategory = async (req, res) => {
+  const { id } = req.params;
+
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ msg: "ID de categoría inválido." });
+  }
+
   try {
-    const category = await Category.findById(req.params.id);
+    const category = await Category.findById(id);
     if (!category) {
       return res.status(404).json({ msg: "Categoría no encontrada." });
     }
 
-    if (
-      category.createdBy.toString() !== req.user.id &&
-      req.user.role !== "admin"
-    ) {
+    const esCreador = category.createdBy.toString() === req.user.id;
+    const esAdmin = req.user.role === "admin";
+
+    if (!esCreador && !esAdmin) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para eliminar esta categoría." });
@@ -145,7 +167,7 @@ export const deleteCategory = async (req, res) => {
 
     res.status(200).json({ msg: "Categoría eliminada correctamente." });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error en deleteCategory:", error);
     res.status(500).json({ msg: "Error al eliminar la categoría." });
   }
 };

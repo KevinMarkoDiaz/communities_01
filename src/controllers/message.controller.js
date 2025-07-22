@@ -1,14 +1,21 @@
+import mongoose from "mongoose";
 import Message from "../models/message.model.js";
 import Conversation from "../models/conversation.model.js";
 import Business from "../models/business.model.js";
 import Event from "../models/event.model.js";
 import Notification from "../models/Notification.model.js";
 
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
 /**
  * Obtener todos los mensajes de una conversación
  */
 export const getMessagesByConversation = async (req, res) => {
   const { conversationId } = req.params;
+
+  if (!isValidObjectId(conversationId)) {
+    return res.status(400).json({ message: "ID de conversación inválido" });
+  }
 
   try {
     const messages = await Message.find({ conversation: conversationId })
@@ -17,8 +24,8 @@ export const getMessagesByConversation = async (req, res) => {
 
     res.status(200).json(messages);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error al obtener mensajes" });
+    console.error("Error al obtener mensajes:", error);
+    res.status(500).json({ message: "Error interno al obtener mensajes" });
   }
 };
 
@@ -28,12 +35,16 @@ export const getMessagesByConversation = async (req, res) => {
 export const sendMessage = async (req, res) => {
   const { conversationId, text } = req.body;
 
-  if (!text) {
+  if (!isValidObjectId(conversationId)) {
+    return res.status(400).json({ message: "ID de conversación inválido" });
+  }
+
+  if (!text || text.trim() === "") {
     return res.status(400).json({ message: "El mensaje no puede estar vacío" });
   }
 
   try {
-    // Cargar la conversación sin populate primero
+    // Buscar conversación sin populate primero
     let conversation = await Conversation.findById(conversationId);
     if (!conversation) {
       return res.status(404).json({ message: "Conversación no encontrada" });
@@ -61,65 +72,71 @@ export const sendMessage = async (req, res) => {
     // Actualizar la conversación
     conversation.lastMessage = text;
     conversation.lastMessageAt = new Date();
-    conversation.lastMessageIsRead = false; // ⬅️ IMPORTANTE: marcar como NO leído
+    conversation.lastMessageIsRead = false;
     await conversation.save();
 
     await message.populate("sender", "name role profileImage");
 
-    // 🟢 Determinar receptor
+    // Determinar receptor de la notificación
     let recipientUserId;
     let entityId;
     let entityTypeForNotification;
 
-    if (req.user._id.equals(conversation.user._id)) {
-      // El sender es un usuario normal -> receptor es el dueño del negocio o el creador del evento
+    const senderId = req.user._id.toString();
+    const userIdInConversation = conversation.user?._id?.toString();
+
+    if (senderId === userIdInConversation) {
+      // Sender es el usuario normal
       if (conversation.entityType === "business") {
         const business = await Business.findById(
-          conversation.entityId._id
+          conversation.entityId?._id
         ).populate("owner");
-        recipientUserId = business.owner._id;
-        entityId = business._id;
+        recipientUserId = business?.owner?._id;
+        entityId = business?._id;
         entityTypeForNotification = "business";
       } else if (conversation.entityType === "event") {
-        const event = await Event.findById(conversation.entityId._id).populate(
+        const event = await Event.findById(conversation.entityId?._id).populate(
           "createdBy"
         );
-        recipientUserId = event.createdBy._id;
-        entityId = event._id;
+        recipientUserId = event?.createdBy?._id;
+        entityId = event?._id;
         entityTypeForNotification = "event";
       }
     } else {
-      // El sender es el dueño -> receptor es el usuario normal
-      recipientUserId = conversation.user._id;
-      entityId = conversation.user._id;
+      // Sender es el dueño (business owner o creador del evento)
+      recipientUserId = conversation.user?._id;
+      entityId = conversation.user?._id;
       entityTypeForNotification = "message";
     }
 
-    // 🟢 Crear notificación
-    await Notification.create({
-      user: recipientUserId,
-      entityType: entityTypeForNotification,
-      entityId: entityId,
-      actionType: "message_received",
-      message: `Has recibido un nuevo mensaje de ${message.sender.name}`,
-      link: `/inbox/conversation/${conversationId}`,
-    });
+    // Crear notificación si hay receptor
+    if (recipientUserId) {
+      await Notification.create({
+        user: recipientUserId,
+        entityType: entityTypeForNotification,
+        entityId: entityId,
+        actionType: "message_received",
+        message: `Has recibido un nuevo mensaje de ${message.sender.name}`,
+        link: `/inbox/conversation/${conversationId}`,
+      });
+    }
 
     res.status(201).json(message);
   } catch (error) {
-    console.error("❌ Error en sendMessage:", error);
-    res.status(500).json({ message: "Error al enviar mensaje" });
+    console.error("Error en sendMessage:", error);
+    res.status(500).json({ message: "Error interno al enviar mensaje" });
   }
 };
 
 /**
  * Marcar un mensaje como leído
  */
-/**
- * Marcar un mensaje como leído
- */
 export const markMessageAsRead = async (req, res) => {
   const { messageId } = req.params;
+
+  if (!isValidObjectId(messageId)) {
+    return res.status(400).json({ message: "ID de mensaje inválido" });
+  }
 
   try {
     const message = await Message.findById(messageId);
@@ -130,7 +147,6 @@ export const markMessageAsRead = async (req, res) => {
     message.isRead = true;
     await message.save();
 
-    // ✅ También marcar en la conversación
     const conversation = await Conversation.findById(message.conversation);
     if (conversation) {
       conversation.lastMessageIsRead = true;
@@ -139,7 +155,7 @@ export const markMessageAsRead = async (req, res) => {
 
     res.status(200).json({ message: "Mensaje marcado como leído" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error al marcar como leído" });
+    console.error("Error al marcar mensaje como leído:", error);
+    res.status(500).json({ message: "Error interno al marcar como leído" });
   }
 };

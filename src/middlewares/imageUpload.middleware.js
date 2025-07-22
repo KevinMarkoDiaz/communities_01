@@ -40,10 +40,6 @@ export const uploaderMiddleware = upload.fields([
 
 // Procesamiento de imágenes para negocios y perfiles
 export const imageProcessor = async (req, res, next) => {
-  console.log("🔑 Cloudinary config:", {
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY?.slice(0, 4) + "***",
-  });
   try {
     const files = req.files;
 

@@ -5,29 +5,46 @@ import User from "../models/user.model.js";
 
 dotenv.config();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+const {
+  STRIPE_SECRET_KEY,
+  STRIPE_PREMIUM_PRICE_ID,
+  STRIPE_WEBHOOK_SECRET,
+  FRONTEND_URL,
+} = process.env;
+
+if (
+  !STRIPE_SECRET_KEY ||
+  !STRIPE_PREMIUM_PRICE_ID ||
+  !STRIPE_WEBHOOK_SECRET ||
+  !FRONTEND_URL
+) {
+  throw new Error("🚨 Falta configurar variables de entorno para Stripe");
+}
+
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2023-10-16",
 });
 
-// ✅ Controlador para crear la sesión de checkout
+/**
+ * Crear una sesión de pago con Stripe Checkout
+ */
 export const createCheckoutSession = async (req, res) => {
   try {
     const user = req.user;
+    if (!user || !user.email) {
+      return res.status(400).json({ message: "Usuario inválido" });
+    }
 
-    // ✅ Tomar FRONTEND_URL del entorno
-    const rawFrontendUrl = process.env.FRONTEND_URL;
-
-    // ✅ Quitar "/" final si existe
-    const frontendUrl = rawFrontendUrl.endsWith("/")
-      ? rawFrontendUrl.slice(0, -1)
-      : rawFrontendUrl;
+    const cleanFrontendUrl = FRONTEND_URL.endsWith("/")
+      ? FRONTEND_URL.slice(0, -1)
+      : FRONTEND_URL;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "subscription",
       line_items: [
         {
-          price: process.env.STRIPE_PREMIUM_PRICE_ID,
+          price: STRIPE_PREMIUM_PRICE_ID,
           quantity: 1,
         },
       ],
@@ -35,30 +52,32 @@ export const createCheckoutSession = async (req, res) => {
       metadata: {
         userId: user._id.toString(),
       },
-      success_url: `${frontendUrl}/suscripcion-exitosa`,
-      cancel_url: `${frontendUrl}/suscripcion-cancelada`,
+      success_url: `${cleanFrontendUrl}/suscripcion-exitosa`,
+      cancel_url: `${cleanFrontendUrl}/suscripcion-cancelada`,
     });
 
-    res.json({ url: session.url });
+    res.status(200).json({ url: session.url });
   } catch (error) {
     console.error("❌ Error creando sesión Stripe:", error);
-    res.status(500).json({ message: "Error creando la sesión de pago" });
+    res.status(500).json({ message: "Error al iniciar sesión de pago" });
   }
 };
 
-// ✅ Webhook que maneja eventos enviados por Stripe
-
+/**
+ * Webhook de Stripe para manejar eventos automáticos
+ */
 export const stripeWebhookHandler = async (req, res) => {
   const sig = req.headers["stripe-signature"];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   let event;
-
   try {
-    // 🚨 Aquí usas req.body directamente (Buffer crudo)
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      STRIPE_WEBHOOK_SECRET
+    );
   } catch (err) {
-    console.error("❌ Error verificando firma del webhook:", err.message);
+    console.error("❌ Firma inválida del webhook:", err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -68,20 +87,15 @@ export const stripeWebhookHandler = async (req, res) => {
     case "checkout.session.completed":
       try {
         const userId = data.metadata.userId;
-        console.log("📦 userId recibido en webhook:", userId);
-
         const user = await User.findById(userId);
-
         if (user) {
-          console.log("✅ Usuario encontrado:", user.email);
           user.isPremium = true;
           user.subscriptionId = data.subscription;
           await user.save();
-          console.log("🌟 Usuario marcado como premium");
-
-          console.log("🌟 Usuario actualizado a premium");
         } else {
-          console.log("⚠️ No se encontró ningún usuario con ese ID");
+          console.warn(
+            "⚠️ Usuario no encontrado en checkout.session.completed"
+          );
         }
       } catch (err) {
         console.error("⚠️ Error actualizando usuario:", err);
@@ -89,18 +103,17 @@ export const stripeWebhookHandler = async (req, res) => {
       break;
 
     case "invoice.paid":
-      console.log("💰 Factura pagada:", data.id);
       break;
 
     case "invoice.payment_failed":
-      console.warn("❌ Fallo en el pago:", data.id);
       try {
         const user = await User.findOne({ subscriptionId: data.subscription });
         if (user) {
-          console.log(`⚠️ Pago fallido para el usuario ${user.email}`);
+          console.warn(`❌ Pago fallido para usuario: ${user.email}`);
+          // Aquí podrías enviar una notificación o email
         }
       } catch (err) {
-        console.error("⚠️ Error localizando usuario con pago fallido:", err);
+        console.error("⚠️ Error al manejar invoice.payment_failed:", err);
       }
       break;
 
@@ -108,13 +121,11 @@ export const stripeWebhookHandler = async (req, res) => {
       try {
         const user = await User.findOne({ subscriptionId: data.id });
         if (user) {
-          console.log(
-            `🔄 Subscripción actualizada para el usuario ${user.email}`
-          );
-          // Puedes actualizar más campos aquí si usas distintos planes
+          console.log(`🔄 Subscripción actualizada para: ${user.email}`);
+          // Si hay distintos planes, podrías actualizar aquí
         }
       } catch (err) {
-        console.error("⚠️ Error actualizando subscripción:", err);
+        console.error("⚠️ Error al manejar subscription.updated:", err);
       }
       break;
 
@@ -125,12 +136,10 @@ export const stripeWebhookHandler = async (req, res) => {
           user.isPremium = false;
           user.subscriptionId = null;
           await user.save();
-          console.log(
-            `👤 Subscripción cancelada, premium desactivado para ${user.email}`
-          );
+          console.log(`🛑 Premium cancelado para: ${user.email}`);
         }
       } catch (err) {
-        console.error("⚠️ Error al revertir subscripción:", err);
+        console.error("⚠️ Error al manejar subscription.deleted:", err);
       }
       break;
 
@@ -138,5 +147,5 @@ export const stripeWebhookHandler = async (req, res) => {
       console.log(`🔔 Evento no manejado: ${event.type}`);
   }
 
-  res.json({ received: true });
+  res.status(200).json({ received: true });
 };

@@ -42,10 +42,16 @@ export const registerUser = async (req, res) => {
     await newUser.save();
 
     const payload = { user: { id: newUser._id, role: newUser.role } };
-    const token = await createAccessToken(payload);
+    let token;
+    try {
+      token = await createAccessToken(payload);
+    } catch (err) {
+      console.error("❌ Error al crear token:", err);
+      return res.status(500).json({ msg: "Error al generar token" });
+    }
     setAuthCookie(res, token);
 
-    res.status(201).json({
+    return res.status(201).json({
       msg: "Usuario creado",
       token,
       user: {
@@ -56,8 +62,6 @@ export const registerUser = async (req, res) => {
         profileImage: newUser.profileImage,
         isVerified: newUser.isVerified,
         community: newUser.community,
-
-        // ✅ agregá:
         title: newUser.title,
         description: newUser.description,
         location: newUser.location,
@@ -66,7 +70,9 @@ export const registerUser = async (req, res) => {
     });
   } catch (error) {
     console.error("Error en registro:", error);
-    res.status(500).send("Error del servidor");
+    return res
+      .status(500)
+      .json({ msg: "Error del servidor", error: error.message });
   }
 };
 
@@ -88,10 +94,16 @@ export const loginUser = async (req, res) => {
     }
 
     const payload = { user: { id: user._id, role: user.role } };
-    const token = await createAccessToken(payload);
+    let token;
+    try {
+      token = await createAccessToken(payload);
+    } catch (err) {
+      console.error("❌ Error al crear token:", err);
+      return res.status(500).json({ msg: "Error al generar token" });
+    }
     setAuthCookie(res, token);
 
-    res.status(200).json({
+    return res.status(200).json({
       msg: "Inicio de sesión exitoso",
       token,
       user: {
@@ -102,8 +114,6 @@ export const loginUser = async (req, res) => {
         profileImage: user.profileImage,
         isVerified: user.isVerified,
         community: user.community,
-
-        // ✅ agregá:
         title: user.title,
         description: user.description,
         location: user.location,
@@ -112,7 +122,9 @@ export const loginUser = async (req, res) => {
     });
   } catch (error) {
     console.error("Error en login:", error);
-    res.status(500).send("Error del servidor");
+    return res
+      .status(500)
+      .json({ msg: "Error del servidor", error: error.message });
   }
 };
 
@@ -127,7 +139,7 @@ export const logoutUser = (req, res) => {
     domain: ".communidades.com",
   });
 
-  res.status(200).json({ message: "Sesión cerrada correctamente" });
+  return res.status(200).json({ message: "Sesión cerrada correctamente" });
 };
 
 /**
@@ -135,13 +147,17 @@ export const logoutUser = (req, res) => {
  */
 export const getUserProfile = async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ msg: "No autenticado" });
+    }
+
     const user = await User.findById(req.user.id).select("-password");
 
     if (!user) {
       return res.status(404).json({ msg: "Usuario no encontrado" });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       user: {
         id: user._id,
         name: user.name,
@@ -160,7 +176,12 @@ export const getUserProfile = async (req, res) => {
     });
   } catch (error) {
     console.error("Error al obtener perfil:", error);
-    res.status(500).json({ msg: "Error al obtener el perfil del usuario" });
+    return res
+      .status(500)
+      .json({
+        msg: "Error al obtener el perfil del usuario",
+        error: error.message,
+      });
   }
 };
 
@@ -169,11 +190,18 @@ export const getUserProfile = async (req, res) => {
  */
 export const getCurrentUser = async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ msg: "No autenticado" });
+    }
+
     const user = await User.findById(req.user.id).select("-password");
     if (!user) return res.status(404).json({ msg: "Usuario no encontrado" });
-    res.json({ usuario: user });
+
+    return res.json({ usuario: user });
   } catch (err) {
     console.error("Error al obtener perfil (/me):", err);
-    res.status(500).json({ msg: "Error al obtener perfil" });
+    return res
+      .status(500)
+      .json({ msg: "Error al obtener perfil", error: err.message });
   }
 };

@@ -1,10 +1,10 @@
 import { Router } from "express";
 import {
   createPromotion,
-  getPromotions,
   deletePromotion,
   updatePromotion,
   getMyPromotions,
+  getPromotions,
 } from "../controllers/promotion.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";

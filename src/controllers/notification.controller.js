@@ -1,4 +1,7 @@
+import mongoose from "mongoose";
 import Notification from "../models/Notification.model.js";
+
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 /**
  * Obtener las notificaciones del usuario autenticado
@@ -11,10 +14,12 @@ export const getUserNotifications = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(50);
 
-    res.json({ notifications });
+    res.status(200).json({ notifications });
   } catch (error) {
     console.error("❌ Error al obtener notificaciones:", error);
-    res.status(500).json({ msg: "Error al obtener notificaciones" });
+    res
+      .status(500)
+      .json({ message: "Error interno al obtener notificaciones" });
   }
 };
 
@@ -22,27 +27,36 @@ export const getUserNotifications = async (req, res) => {
  * Marcar una notificación como leída
  */
 export const markNotificationRead = async (req, res) => {
-  try {
-    const { id } = req.params;
+  const { id } = req.params;
 
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ message: "ID de notificación inválido" });
+  }
+
+  try {
     const notification = await Notification.findById(id);
+
     if (!notification) {
-      return res.status(404).json({ msg: "Notificación no encontrada" });
+      return res.status(404).json({ message: "Notificación no encontrada" });
     }
 
     if (notification.user.toString() !== req.user.id) {
       return res
         .status(403)
-        .json({ msg: "No tienes permisos sobre esta notificación" });
+        .json({ message: "No tienes permisos sobre esta notificación" });
     }
 
-    notification.read = true;
-    await notification.save();
+    if (!notification.read) {
+      notification.read = true;
+      await notification.save();
+    }
 
     res.json({ message: "Notificación marcada como leída" });
   } catch (error) {
-    console.error("❌ Error al marcar notificación:", error);
-    res.status(500).json({ msg: "Error al marcar notificación" });
+    console.error("❌ Error al marcar notificación como leída:", error);
+    res
+      .status(500)
+      .json({ message: "Error interno al marcar notificación como leída" });
   }
 };
 
@@ -61,6 +75,8 @@ export const markAllNotificationsRead = async (req, res) => {
     res.json({ message: "Todas las notificaciones marcadas como leídas" });
   } catch (error) {
     console.error("❌ Error al marcar todas las notificaciones:", error);
-    res.status(500).json({ msg: "Error al marcar todas las notificaciones" });
+    res
+      .status(500)
+      .json({ message: "Error interno al marcar todas las notificaciones" });
   }
 };
