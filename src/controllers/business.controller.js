@@ -296,12 +296,6 @@ export const deleteBusiness = async (req, res) => {
  */
 export const getMyBusinesses = async (req, res) => {
   try {
-    if (!["admin", "business_owner"].includes(req.user.role)) {
-      return res
-        .status(403)
-        .json({ msg: "No tienes permisos para ver tus negocios." });
-    }
-
     const businesses = await Business.find({ owner: req.user.id }).populate(
       "category community owner"
     );

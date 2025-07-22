@@ -27,7 +27,6 @@ router.get("/promotions", getPromotions);
 router.post(
   "/promotions",
   authMiddleware,
-  hasRole("admin", "business_owner"),
   uploaderMiddleware,
   imageProcessor,
   parseDataField,
@@ -37,12 +36,7 @@ router.post(
 );
 
 // 📥 Obtener promociones del usuario autenticado
-router.get(
-  "/promotions/mine",
-  authMiddleware,
-  hasRole("admin", "business_owner"),
-  getMyPromotions
-);
+router.get("/promotions/mine", authMiddleware, getMyPromotions);
 
 // 🔁 Actualizar promoción
 router.put(

@@ -38,12 +38,7 @@ router.post(
 router.get("/", getAllBusinesses);
 
 // Obtener negocios propios
-router.get(
-  "/mine",
-  authMiddleware,
-  hasRole("admin", "business_owner"),
-  getMyBusinesses
-);
+router.get("/mine", authMiddleware, getMyBusinesses);
 
 // Obtener promociones de un negocio
 router.get("/:id/promotions", getPromotionsByBusiness);

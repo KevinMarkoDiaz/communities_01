@@ -46,12 +46,7 @@ router.get("/communities", getAllCommunities);
 /**
  * Obtener comunidades del usuario autenticado (admin o business_owner)
  */
-router.get(
-  "/communities/mine",
-  authMiddleware,
-  hasRole("admin", "business_owner"),
-  getMyCommunities
-);
+router.get("/communities/mine", authMiddleware, getMyCommunities);
 
 router.get("/community/:id/promotions", getPromotionsByCommunity);
 

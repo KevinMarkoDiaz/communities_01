@@ -39,12 +39,7 @@ router.post(
 router.get("/", getAllEvents);
 
 // Obtener eventos del usuario autenticado
-router.get(
-  "/mine",
-  authMiddleware,
-  hasRole("admin", "business_owner"),
-  getMyEventsController
-);
+router.get("/mine", authMiddleware, getMyEventsController);
 
 // Obtener evento por ID
 router.get("/:id", getEventById);
