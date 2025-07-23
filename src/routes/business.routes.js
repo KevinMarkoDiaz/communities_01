@@ -8,6 +8,7 @@ import {
   getMyBusinesses,
   getPromotionsByBusiness,
   toggleLikeBusiness,
+  getBusinessesByCommunity, // ✅ Import nuevo
 } from "../controllers/business.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
@@ -36,6 +37,9 @@ router.post(
 
 // Obtener todos los negocios
 router.get("/", getAllBusinesses);
+
+// ✅ Nueva ruta: Obtener negocios por comunidad
+router.get("/community/:communityId", getBusinessesByCommunity);
 
 // Obtener negocios propios
 router.get("/mine", authMiddleware, getMyBusinesses);

@@ -363,3 +363,18 @@ export const toggleLikeBusiness = async (req, res) => {
     res.status(500).json({ error: "Error al procesar el me gusta" });
   }
 };
+
+export const getBusinessesByCommunity = async (req, res) => {
+  try {
+    const { communityId } = req.params;
+
+    const businesses = await Business.find({ community: communityId }).populate(
+      "category community owner"
+    );
+
+    res.status(200).json({ businesses });
+  } catch (error) {
+    console.error("❌ Error en getBusinessesByCommunity:", error);
+    res.status(500).json({ msg: "Error al obtener negocios de la comunidad." });
+  }
+};
