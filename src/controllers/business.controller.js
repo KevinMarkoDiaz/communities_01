@@ -7,6 +7,13 @@ import businessView from "../models/businessView.model.js";
 import Follow from "../models/follow.model.js";
 
 // Utils
+function buildGeoJSON({ lng, lat }) {
+  return {
+    type: "Point",
+    coordinates: [lng, lat],
+  };
+}
+
 const parseJSONField = (field, fallback = {}) => {
   try {
     return typeof field === "string" ? JSON.parse(field) : field;
