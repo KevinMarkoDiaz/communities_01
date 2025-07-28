@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const communitySchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true },
-    slug: { type: String, unique: true }, // URL amigable opcional
+    slug: { type: String, unique: true }, // URL amigable
 
     flagImage: { type: String },
     bannerImage: { type: String },
@@ -78,8 +78,15 @@ const communitySchema = new mongoose.Schema(
     // 🌐 Geolocalización
     region: String,
     mapCenter: {
-      lat: Number,
-      lng: Number,
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [lng, lat]
+        required: true,
+      },
     },
 
     // 🔍 SEO
@@ -93,11 +100,12 @@ const communitySchema = new mongoose.Schema(
       default: "Inactiva",
     },
     verified: { type: Boolean, default: false },
-
-    // ⏱️ Timestamps
   },
   { timestamps: true }
 );
+
+// 📍 Índice geoespacial para búsquedas por radio
+communitySchema.index({ mapCenter: "2dsphere" });
 
 const Community = mongoose.model("Community", communitySchema);
 export default Community;

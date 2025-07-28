@@ -4,7 +4,6 @@ import Business from "../models/business.model.js";
 import Follow from "../models/follow.model.js";
 import Notification from "../models/Notification.model.js";
 import { promotionSchema } from "../schemas/promotionSchema.js";
-
 import { zodErrorToResponse } from "../utils/zodErrorToResponse.js";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -40,14 +39,8 @@ export const getPromotions = async (req, res) => {
  */
 export const createPromotion = async (req, res) => {
   try {
-    // ✅ Validar con Zod directamente desde req.body (ya parseado por middleware)
     const parsed = promotionSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      console.log("❌ Error Zod DETALLADO:");
-
-      return zodErrorToResponse(res, parsed.error);
-    }
+    if (!parsed.success) return zodErrorToResponse(res, parsed.error);
 
     const {
       name,
@@ -59,9 +52,9 @@ export const createPromotion = async (req, res) => {
       category,
       community,
       featuredImage,
+      maxClaims,
     } = parsed.data;
 
-    // 📌 Verificar ID de negocio válido
     if (!isValidObjectId(business)) {
       return res.status(400).json({ message: "ID de negocio inválido" });
     }
@@ -71,7 +64,6 @@ export const createPromotion = async (req, res) => {
       return res.status(404).json({ message: "Negocio no encontrado" });
     }
 
-    // 🔒 Verificación de propiedad si es business_owner
     if (
       req.user.role === "business_owner" &&
       negocio.owner.toString() !== req.user._id.toString()
@@ -81,7 +73,6 @@ export const createPromotion = async (req, res) => {
         .json({ message: "No autorizado para este negocio" });
     }
 
-    // ⛔ Límite de promociones por negocio
     const count = await Promotion.countDocuments({ business });
     if (count >= 5) {
       return res.status(400).json({
@@ -89,7 +80,6 @@ export const createPromotion = async (req, res) => {
       });
     }
 
-    // ✅ Crear la promoción
     const promotion = await Promotion.create({
       name,
       description,
@@ -101,9 +91,9 @@ export const createPromotion = async (req, res) => {
       category,
       community,
       featuredImage,
+      maxClaims,
     });
 
-    // 🔔 Notificar a seguidores del negocio
     const follows = await Follow.find({
       entityType: "business",
       entityId: negocio._id,
@@ -123,7 +113,6 @@ export const createPromotion = async (req, res) => {
       await Notification.insertMany(notifications);
     }
 
-    // 🎉 Éxito
     res.status(201).json({ message: "Promoción creada", promotion });
   } catch (error) {
     console.error("Error en createPromotion:", error);
@@ -137,25 +126,18 @@ export const createPromotion = async (req, res) => {
 export const updatePromotion = async (req, res) => {
   try {
     const { id } = req.params;
-
     if (!isValidObjectId(id)) {
       return res.status(400).json({ message: "ID de promoción inválido" });
     }
 
-    // ✅ Validar datos ya parseados con Zod
     const parsed = promotionSchema.partial().safeParse(req.body);
-
-    if (!parsed.success) {
-      console.log("❌ Error Zod:", parsed.error.flatten());
-      return zodErrorToResponse(res, parsed.error);
-    }
+    if (!parsed.success) return zodErrorToResponse(res, parsed.error);
 
     const promo = await Promotion.findById(id);
     if (!promo) {
       return res.status(404).json({ message: "Promoción no encontrada" });
     }
 
-    // 🔒 Verificación de permisos
     if (
       req.user.role === "business_owner" &&
       promo.createdBy.toString() !== req.user._id.toString()
@@ -165,16 +147,13 @@ export const updatePromotion = async (req, res) => {
         .json({ message: "No autorizado para editar esta promoción" });
     }
 
-    // 🛠️ Actualizar campos permitidos
     Object.assign(promo, parsed.data);
-
     if (req.body.featuredImage) {
       promo.featuredImage = req.body.featuredImage;
     }
 
     await promo.save();
 
-    // 🔔 Notificar a seguidores
     if (promo.business) {
       const follows = await Follow.find({
         entityType: "business",

@@ -34,10 +34,10 @@ export const eventSchema = z.object({
       zipCode: z.string().optional(),
       country: z.string().optional(),
       coordinates: z
-        .object({
-          lat: z.number().min(-90).max(90).nullable(),
-          lng: z.number().min(-180).max(180).nullable(),
-        })
+        .tuple([
+          z.number().min(-180).max(180), // lng
+          z.number().min(-90).max(90), // lat
+        ])
         .optional(),
     })
     .optional(),

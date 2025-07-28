@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
+import UserPromo from "./userPromo.model.js";
 
 const promotionSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     description: { type: String, required: true, maxlength: 2000 },
-
     type: {
       type: String,
       enum: [
@@ -14,16 +14,9 @@ const promotionSchema = new mongoose.Schema(
       ],
       required: true,
     },
-
     featuredImage: { type: String, required: true },
-    startDate: {
-      type: Date,
-      required: true,
-    },
-    endDate: {
-      type: Date,
-      required: true,
-    },
+    startDate: { type: Date, required: true },
+    endDate: { type: Date, required: true },
     business: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Business",
@@ -44,8 +37,28 @@ const promotionSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    maxClaims: {
+      type: Number,
+      default: null,
+    },
   },
   { timestamps: true }
 );
 
-export default mongoose.model("Promotion", promotionSchema);
+// Eliminar cupones asociados al borrar promoción
+promotionSchema.pre(
+  "deleteOne",
+  { document: true, query: false },
+  async function (next) {
+    try {
+      await UserPromo.deleteMany({ promotion: this._id });
+      next();
+    } catch (error) {
+      console.error("Error al eliminar cupones relacionados:", error);
+      next(error);
+    }
+  }
+);
+
+export default mongoose.models.Promotion ||
+  mongoose.model("Promotion", promotionSchema);

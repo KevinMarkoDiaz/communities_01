@@ -96,14 +96,27 @@ export const getCategoryById = async (req, res) => {
  */
 export const updateCategory = async (req, res) => {
   const { id } = req.params;
-  const { name, icon, description, createdBy, createdByName, createdByRole } =
-    req.body;
 
   if (!isValidObjectId(id)) {
     return res.status(400).json({ msg: "ID de categoría inválido." });
   }
 
   try {
+    let data;
+
+    // ✅ Intentamos parsear JSON si viene como multipart/form-data
+    if (req.body.data) {
+      try {
+        data = JSON.parse(req.body.data);
+      } catch (err) {
+        return res.status(400).json({ msg: "Formato inválido en 'data'." });
+      }
+    } else {
+      data = req.body; // fallback si viene como JSON plano
+    }
+
+    const { name, description, createdBy, createdByName, createdByRole } = data;
+
     const category = await Category.findById(id);
     if (!category) {
       return res.status(404).json({ msg: "Categoría no encontrada." });
@@ -111,27 +124,33 @@ export const updateCategory = async (req, res) => {
 
     const esCreador = category.createdBy.toString() === req.user.id;
     const esAdmin = req.user.role === "admin";
+
     if (!esCreador && !esAdmin) {
-      return res
-        .status(403)
-        .json({ msg: "No tienes permisos para actualizar esta categoría." });
+      return res.status(403).json({
+        msg: "No tienes permisos para editar esta categoría.",
+      });
     }
 
     if (createdBy || createdByName || createdByRole) {
-      return res
-        .status(400)
-        .json({ msg: "No se pueden modificar los datos del creador." });
+      return res.status(400).json({
+        msg: "No se pueden modificar los datos del creador.",
+      });
     }
 
     if (name) category.name = name;
-    if (icon) category.icon = icon;
     if (description) category.description = description;
+
+    // ✅ Actualizar icono si se envía uno nuevo (string o URL)
+    if (req.body.profileImage !== undefined) {
+      category.icon = req.body.profileImage;
+    }
 
     await category.save();
 
-    res
-      .status(200)
-      .json({ msg: "Categoría actualizada correctamente.", category });
+    res.status(200).json({
+      msg: "Categoría actualizada correctamente.",
+      category,
+    });
   } catch (error) {
     console.error("❌ Error en updateCategory:", error);
     res.status(500).json({ msg: "Error al actualizar la categoría." });

@@ -28,4 +28,11 @@ export const promotionSchema = z.object({
     .string()
     .url({ message: "La URL de la imagen no es válida" })
     .optional(),
+
+  // 🟢 NUEVO: Límite opcional de reclamos
+  maxClaims: z
+    .number()
+    .int({ message: "Debe ser un número entero" })
+    .min(1, "Debe ser al menos 1")
+    .optional(),
 });

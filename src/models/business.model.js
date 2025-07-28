@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 
+// ⏰ Horario
 const horarioSchema = new mongoose.Schema({
   day: { type: String, required: true },
   closed: { type: Boolean, default: false },
@@ -31,12 +32,14 @@ const horarioSchema = new mongoose.Schema({
   },
 });
 
+// 🌐 Redes sociales
 const socialMediaSchema = new mongoose.Schema({
   facebook: String,
   instagram: String,
   whatsapp: String,
 });
 
+// 📞 Contacto
 const contactSchema = new mongoose.Schema({
   phone: String,
   email: {
@@ -47,6 +50,7 @@ const contactSchema = new mongoose.Schema({
   socialMedia: socialMediaSchema,
 });
 
+// 📍 Ubicación con coordenadas GeoJSON válidas
 const locationSchema = new mongoose.Schema({
   address: { type: String, required: true },
   city: { type: String, required: true },
@@ -54,11 +58,27 @@ const locationSchema = new mongoose.Schema({
   zipCode: { type: String, default: "" },
   country: { type: String, default: "USA" },
   coordinates: {
-    lat: { type: Number, required: true },
-    lng: { type: Number, required: true },
+    type: {
+      type: String,
+      enum: ["Point"],
+      required: true,
+      default: "Point",
+    },
+    coordinates: {
+      type: [Number], // [lng, lat]
+      required: true,
+      validate: {
+        validator: function (value) {
+          return value.length === 2;
+        },
+        message: "Las coordenadas deben tener [lng, lat]",
+      },
+    },
   },
 });
+locationSchema.index({ coordinates: "2dsphere" }); // ✅ Índice geoespacial
 
+// 🏪 Modelo principal de negocio
 const businessSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -93,10 +113,8 @@ const businessSchema = new mongoose.Schema(
     tags: [String],
     isVerified: { type: Boolean, default: false },
 
-    // ✅ NUEVO: Likes
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
-    // ✅ Opcional: feedback embebido si quieres comentarios y rating directo
     feedback: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -111,7 +129,7 @@ const businessSchema = new mongoose.Schema(
   }
 );
 
-// ✅ Virtual de promociones
+// 🎯 Virtual de promociones relacionadas
 businessSchema.virtual("promotions", {
   ref: "Promotion",
   localField: "_id",

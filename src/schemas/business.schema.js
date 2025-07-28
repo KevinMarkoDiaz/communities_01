@@ -43,8 +43,13 @@ const locationSchema = z.object({
   zipCode: z.string().max(20).optional(),
   country: z.string().min(2).max(100),
   coordinates: z.object({
-    lat: z.number(),
-    lng: z.number(),
+    type: z.literal("Point"),
+    coordinates: z
+      .tuple([z.number(), z.number()]) // [lng, lat]
+      .refine(
+        ([lng, lat]) => lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90,
+        { message: "Coordenadas fuera de rango válido" }
+      ),
   }),
 });
 

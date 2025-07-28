@@ -77,12 +77,21 @@ export const createEvent = async (req, res) => {
 
     // 🗺 Geocodificar si es evento presencial
     let enrichedLocation = location;
+    let geoCoordinates;
+
     if (!isOnline && location?.address && location?.city && location?.state) {
       const fullAddress = `${location.address}, ${location.city}, ${
         location.state
       }, ${location.country || "USA"}`;
-      const coords = await geocodeAddress(fullAddress);
+      const coords = await geocodeAddress(fullAddress); // [lat, lng]
+
       enrichedLocation = { ...location, coordinates: coords };
+
+      // ✅ Guardar como GeoJSON ordenado
+      geoCoordinates = {
+        type: "Point",
+        coordinates: [coords[1], coords[0]], // [lng, lat]
+      };
     }
 
     const newEvent = new Event({
@@ -91,7 +100,7 @@ export const createEvent = async (req, res) => {
       date,
       time,
       location: enrichedLocation,
-      coordinates,
+      coordinates: geoCoordinates,
       communities,
       businesses,
       categories,
@@ -146,18 +155,42 @@ export const createEvent = async (req, res) => {
   }
 };
 
-// ✅ Obtener todos los eventos
 export const getAllEvents = async (req, res) => {
   try {
-    const events = await Event.find()
+    const { lat, lng, page = 1, limit = 15 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const parsedLimit = parseInt(limit);
+
+    let query = {};
+    const radiusInMiles = 80;
+    const radiusInRadians = radiusInMiles / 3963.2;
+
+    if (lat && lng) {
+      query["coordinates"] = {
+        $geoWithin: {
+          $centerSphere: [[parseFloat(lng), parseFloat(lat)], radiusInRadians],
+        },
+      };
+    }
+
+    const total = await Event.countDocuments(query);
+    const events = await Event.find(query)
       .populate("communities", "name")
       .populate("businesses", "name")
       .populate("categories", "name")
       .populate("organizer", "name email")
       .populate("sponsors", "name")
-      .populate("createdBy", "name");
+      .populate("createdBy", "name")
+      .skip(skip)
+      .limit(parsedLimit);
 
-    res.status(200).json({ events });
+    res.status(200).json({
+      events,
+      total,
+      perPage: parsedLimit,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parsedLimit),
+    });
   } catch (error) {
     console.error("❌ Error en getAllEvents:", error);
     res.status(500).json({ msg: "Error al obtener los eventos" });
@@ -205,35 +238,44 @@ export const updateEvent = async (req, res) => {
         .json({ msg: "No tienes permisos para editar este evento" });
     }
 
-    // 📍 Geocodificación si se actualiza ubicación
+    const {
+      location,
+      isOnline,
+      registrationLink,
+      virtualLink,
+      businesses = [],
+    } = req.body;
+
+    // 📍 Geocodificación si es presencial y hay dirección
     if (
-      req.body.location &&
-      typeof req.body.location === "object" &&
-      !req.body.isOnline
+      location &&
+      typeof location === "object" &&
+      !isOnline &&
+      location.address &&
+      location.city &&
+      location.state
     ) {
       try {
-        const fullAddress = `${req.body.location.address}, ${
-          req.body.location.city
-        }, ${req.body.location.state}, ${req.body.location.country || "USA"}`;
+        const fullAddress = `${location.address}, ${location.city}, ${
+          location.state
+        }, ${location.country || "USA"}`;
         const coords = await geocodeAddress(fullAddress);
+
         req.body.location.coordinates = coords;
+        req.body.coordinates = coords; // Guardamos como propiedad de primer nivel para búsquedas geográficas
       } catch (err) {
         console.error("❌ Error al geocodificar:", err);
-        return res.status(400).json({ msg: "Dirección inválida." });
+        return res
+          .status(400)
+          .json({ msg: "Dirección inválida o sin resultados." });
       }
     }
 
     // 🧼 Limpiar campos vacíos
-    ["registrationLink", "virtualLink"].forEach((campo) => {
-      if (
-        typeof req.body[campo] === "string" &&
-        req.body[campo].trim() === ""
-      ) {
-        req.body[campo] = undefined;
-      }
-    });
+    if (registrationLink === "") req.body.registrationLink = undefined;
+    if (virtualLink === "") req.body.virtualLink = undefined;
 
-    // 🛠 Aplicar cambios
+    // ✅ Aplicar cambios
     for (const campo of camposActualizables) {
       if (req.body[campo] !== undefined) {
         event[campo] = req.body[campo];
@@ -243,10 +285,10 @@ export const updateEvent = async (req, res) => {
     await event.save();
 
     // 🔔 Notificar seguidores si el negocio cambia
-    if (event.businesses?.length) {
+    if (businesses?.length) {
       const followers = await Follow.find({
         entityType: "business",
-        entityId: { $in: event.businesses },
+        entityId: { $in: businesses },
       });
 
       if (followers.length) {
@@ -259,11 +301,12 @@ export const updateEvent = async (req, res) => {
           link: `/eventos/${event._id}`,
           read: false,
         }));
+
         await Notification.insertMany(notifications);
       }
     }
 
-    res.status(200).json({ msg: "Evento actualizado", event });
+    res.status(200).json({ msg: "Evento actualizado correctamente", event });
   } catch (error) {
     console.error("❌ Error en updateEvent:", error);
     res.status(500).json({ msg: "Error al actualizar el evento" });

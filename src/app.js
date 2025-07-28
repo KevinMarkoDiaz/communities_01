@@ -32,6 +32,8 @@ import conversationRoutes from "./routes/conversation.routes.js";
 import messageRoutes from "./routes/message.routes.js";
 import commentRoutes from "./routes/comments.routes.js";
 
+import userPromoRoutes from "./routes/userPromo.routes.js";
+
 const app = express();
 
 // Logs
@@ -108,4 +110,7 @@ app.use("/api/ratings", ratingRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/comments", commentRoutes);
+
+app.use("/api/user-promos", userPromoRoutes);
+
 export default app;

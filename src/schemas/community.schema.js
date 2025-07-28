@@ -7,6 +7,7 @@ const baseFields = {
     .min(1, { message: "El nombre de la comunidad es obligatorio" })
     .max(100, { message: "El nombre no puede exceder 100 caracteres" })
     .trim(),
+
   flagImage: z
     .string()
     .url({ message: "La URL de la imagen de la bandera no es válida" })
@@ -30,6 +31,17 @@ const baseFields = {
   owner: z.string().regex(/^[0-9a-fA-F]{24}$/, {
     message: "ID de usuario propietario inválido",
   }),
+
+  mapCenter: z.object({
+    type: z.literal("Point"),
+    coordinates: z
+      .array(z.number())
+      .length(2, { message: "Debe contener [lng, lat]" })
+      .refine(
+        ([lng, lat]) => lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90,
+        { message: "Coordenadas fuera de rango" }
+      ),
+  }),
 };
 
 // 🟢 Validación para crear comunidad
@@ -40,16 +52,16 @@ export const communityUpdateSchema = z.object({
   name: baseFields.name.optional(),
   flagImage: baseFields.flagImage.optional(),
   bannerImage: baseFields.bannerImage.optional(),
-  description: baseFields.description,
+  description: baseFields.description.optional(),
   language: baseFields.language.optional(),
   owner: baseFields.owner.optional(),
+  mapCenter: baseFields.mapCenter.optional(),
 });
 
 // 🟣 Esquema extendido para la respuesta completa
 export const fullCommunitySchema = communitySchema.extend({
   _id: z.string(),
 
-  // Relaciones
   negocios: z
     .array(
       z.object({
@@ -77,13 +89,11 @@ export const fullCommunitySchema = communitySchema.extend({
     )
     .optional(),
 
-  // Métricas
   memberCount: z.number().int().nonnegative().optional(),
   businessCount: z.number().int().nonnegative().optional(),
   eventCount: z.number().int().nonnegative().optional(),
   mostPopularCategory: z.string().optional(),
 
-  // Social/Cultural
   populationEstimate: z.number().int().nonnegative().optional(),
   originCountryInfo: z
     .object({
@@ -94,6 +104,7 @@ export const fullCommunitySchema = communitySchema.extend({
     .optional(),
 
   traditions: z.array(z.string()).optional(),
+
   food: z
     .array(
       z.object({
@@ -104,9 +115,9 @@ export const fullCommunitySchema = communitySchema.extend({
     )
     .optional(),
 
-  // Engagement
   featuredBusinesses: z.array(z.string()).optional(),
   featuredEvents: z.array(z.string()).optional(),
+
   testimonials: z
     .array(
       z.object({
@@ -116,9 +127,9 @@ export const fullCommunitySchema = communitySchema.extend({
       })
     )
     .optional(),
+
   moderators: z.array(z.string()).optional(),
 
-  // Recursos
   resources: z
     .array(
       z.object({
@@ -138,21 +149,12 @@ export const fullCommunitySchema = communitySchema.extend({
     })
     .optional(),
 
-  // Ubicación y geografía
   region: z.string().optional(),
-  mapCenter: z
-    .object({
-      lat: z.number(),
-      lng: z.number(),
-    })
-    .optional(),
 
-  // SEO y presentación
   slug: z.string().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
 
-  // Admin
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
   status: z.enum(["Inactiva", "Pendiente", "Publicada"]).optional(),

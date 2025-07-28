@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
-dotenv.config(); // 🟢 Esto carga las variables para este archivo antes de que Cloudinary las necesite
+dotenv.config();
+import sharp from "sharp";
 
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
@@ -7,16 +8,32 @@ import path from "path";
 import fs from "fs";
 import fsp from "fs/promises";
 
+async function resizeImage(inputPath, outputPath, width = 1200) {
+  const ext = path.extname(inputPath).toLowerCase();
+
+  const sharpInstance = sharp(inputPath).resize({ width });
+
+  if (ext === ".jpg" || ext === ".jpeg") {
+    await sharpInstance.jpeg({ quality: 80 }).toFile(outputPath);
+  } else if (ext === ".png") {
+    await sharpInstance.png({ quality: 80 }).toFile(outputPath);
+  } else if (ext === ".webp") {
+    await sharpInstance.webp({ quality: 80 }).toFile(outputPath);
+  } else {
+    // default sin compresión específica
+    await sharpInstance.toFile(outputPath);
+  }
+}
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// 📦 Multer (almacenamiento temporal en disco)
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true }); // 🛠️ asegura que crea el árbol si hace falta
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
@@ -31,14 +48,12 @@ export const upload = multer({ storage });
    MIDDLEWARES PARA NEGOCIOS Y PERFILES
 ----------------------------------------------------- */
 
-// Subida de múltiples campos
 export const uploaderMiddleware = upload.fields([
   { name: "featuredImage", maxCount: 1 },
-  { name: "profileImage", maxCount: 1 }, // 🆕
+  { name: "profileImage", maxCount: 1 },
   { name: "images", maxCount: 5 },
 ]);
 
-// Procesamiento de imágenes para negocios y perfiles
 export const imageProcessor = async (req, res, next) => {
   try {
     const files = req.files;
@@ -46,14 +61,17 @@ export const imageProcessor = async (req, res, next) => {
     // Imagen destacada del negocio
     if (files?.featuredImage?.[0]) {
       try {
-        const result = await cloudinary.uploader.upload(
-          files.featuredImage[0].path,
-          {
-            folder: "negocios",
-          }
-        );
+        const inputPath = files.featuredImage[0].path;
+        const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
+        await resizeImage(inputPath, resizedPath);
+
+        const result = await cloudinary.uploader.upload(resizedPath, {
+          folder: "negocios",
+        });
         req.body.featuredImage = result.secure_url;
-        await fsp.unlink(files.featuredImage[0].path);
+
+        await fsp.unlink(inputPath);
+        await fsp.unlink(resizedPath);
       } catch (err) {
         console.error("❌ Falló subida de imagen destacada:", err);
         throw err;
@@ -62,14 +80,17 @@ export const imageProcessor = async (req, res, next) => {
 
     // Imagen de perfil del negocio
     if (files?.profileImage?.[0]) {
-      const result = await cloudinary.uploader.upload(
-        files.profileImage[0].path,
-        {
-          folder: "perfiles",
-        }
-      );
+      const inputPath = files.profileImage[0].path;
+      const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
+      await resizeImage(inputPath, resizedPath);
+
+      const result = await cloudinary.uploader.upload(resizedPath, {
+        folder: "perfiles",
+      });
       req.body.profileImage = result.secure_url;
-      await fsp.unlink(files.profileImage[0].path);
+
+      await fsp.unlink(inputPath);
+      await fsp.unlink(resizedPath);
     }
 
     // Galería de imágenes del negocio
@@ -77,10 +98,16 @@ export const imageProcessor = async (req, res, next) => {
       const uploads = await Promise.all(
         files.images.map(async (file) => {
           try {
-            const result = await cloudinary.uploader.upload(file.path, {
+            const inputPath = file.path;
+            const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
+            await resizeImage(inputPath, resizedPath);
+
+            const result = await cloudinary.uploader.upload(resizedPath, {
               folder: "negocios/galeria",
             });
-            await fsp.unlink(file.path);
+
+            await fsp.unlink(inputPath);
+            await fsp.unlink(resizedPath);
             return result.secure_url;
           } catch (err) {
             console.error("❌ Error subiendo imagen de galería:", err);
@@ -101,23 +128,22 @@ export const imageProcessor = async (req, res, next) => {
   }
 };
 
-// Upload único para imagen de perfil (usuarios)
 export const singleProfileImageUpload = upload.single("profileImage");
 
 export const handleProfileImage = async (req, res, next) => {
   try {
     if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
+      const inputPath = req.file.path;
+      const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
+      await resizeImage(inputPath, resizedPath);
+
+      const result = await cloudinary.uploader.upload(resizedPath, {
         folder: "perfiles",
       });
       req.body.profileImage = result.secure_url;
 
-      // ✅ Eliminar archivo local
-      try {
-        await fsp.unlink(req.file.path);
-      } catch (unlinkErr) {
-        console.error("⚠️ Error eliminando imagen:", unlinkErr);
-      }
+      await fsp.unlink(inputPath);
+      await fsp.unlink(resizedPath);
     }
     next();
   } catch (error) {
@@ -130,10 +156,14 @@ export const handleProfileImage = async (req, res, next) => {
    MIDDLEWARES PARA COMUNIDADES
 ----------------------------------------------------- */
 
-export const uploadCommunityImages = upload.any(); // permite cualquier campo de imagen
+export const uploadCommunityImages = upload.any();
 
 async function uploadToCloudinary(filePath, folder = "communities") {
-  const result = await cloudinary.uploader.upload(filePath, { folder });
+  const resizedPath = filePath.replace(/\.(\w+)$/, "-resized.$1");
+  await resizeImage(filePath, resizedPath);
+  const result = await cloudinary.uploader.upload(resizedPath, { folder });
+  await deleteTempFile(filePath);
+  await deleteTempFile(resizedPath);
   return result;
 }
 
@@ -144,29 +174,23 @@ async function deleteTempFile(filePath) {
     console.warn("⚠️ No se pudo borrar archivo temporal:", err.message);
   }
 }
-// 👇 En processCommunityImages middleware
 
 export const processCommunityImages = async (req, res, next) => {
   try {
-    // Procesar flagImage
     if (req.files?.flagImage?.[0]) {
       const uploadResult = await uploadToCloudinary(
         req.files.flagImage[0].path
       );
       req.body.flagImage = uploadResult.secure_url;
-      await deleteTempFile(req.files.flagImage[0].path);
     }
 
-    // Procesar bannerImage
     if (req.files?.bannerImage?.[0]) {
       const uploadResult = await uploadToCloudinary(
         req.files.bannerImage[0].path
       );
       req.body.bannerImage = uploadResult.secure_url;
-      await deleteTempFile(req.files.bannerImage[0].path);
     }
 
-    // Procesar originCountryInfo.flag si se subió como imagen
     if (req.files?.originCountryFlag?.[0]) {
       const uploadResult = await uploadToCloudinary(
         req.files.originCountryFlag[0].path
@@ -175,10 +199,8 @@ export const processCommunityImages = async (req, res, next) => {
         ...req.body.originCountryInfo,
         flag: uploadResult.secure_url,
       };
-      await deleteTempFile(req.files.originCountryFlag[0].path);
     }
 
-    // Procesar imágenes de comida: foodImages[0], foodImages[1], etc.
     if (req.files) {
       const foodImages = Object.entries(req.files)
         .filter(([key]) => key.startsWith("foodImages["))
@@ -198,7 +220,6 @@ export const processCommunityImages = async (req, res, next) => {
           ...(req.body.food[index] || {}),
           image: uploadResult.secure_url,
         };
-        await deleteTempFile(file.path);
       }
     }
 

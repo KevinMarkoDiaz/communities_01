@@ -61,7 +61,8 @@ export const createBusiness = async (req, res) => {
     const fullAddress = `${location.address}, ${location.city}, ${
       location.state
     }, ${location.country || "USA"}`;
-    location.coordinates = await geocodeAddress(fullAddress);
+    const coords = await geocodeAddress(fullAddress);
+    location.coordinates = buildGeoJSON(coords);
 
     const newBusiness = new Business({
       name,
@@ -100,14 +101,45 @@ export const createBusiness = async (req, res) => {
  */
 export const getAllBusinesses = async (req, res) => {
   try {
-    const businesses = await Business.find().populate(
-      "category community owner"
-    );
+    const { lat, lng, page = 1, limit = 15 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
 
-    res.status(200).json({ businesses });
+    if (!lat || !lng) {
+      return res.status(400).json({ msg: "Faltan coordenadas del usuario." });
+    }
+
+    const radiusInMiles = 80;
+    const earthRadiusInMiles = 3963.2;
+    const radiusInRadians = radiusInMiles / earthRadiusInMiles;
+
+    const query = {
+      "location.coordinates": {
+        $geoWithin: {
+          $centerSphere: [[parsedLng, parsedLat], radiusInRadians],
+        },
+      },
+    };
+
+    const [businesses, total] = await Promise.all([
+      Business.find(query)
+        .populate("category community owner")
+        .limit(parseInt(limit))
+        .skip(skip),
+      Business.countDocuments(query),
+    ]);
+
+    res.status(200).json({
+      businesses,
+      total,
+      perPage: parseInt(limit),
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+    });
   } catch (error) {
     console.error("❌ Error en getAllBusinesses:", error);
-    res.status(500).json({ msg: "Error al obtener los negocios." });
+    res.status(500).json({ msg: "Error al obtener negocios cercanos." });
   }
 };
 
@@ -189,7 +221,8 @@ export const updateBusiness = async (req, res) => {
         const fullAddress = `${location.address}, ${location.city}, ${
           location.state
         }, ${location.country || "USA"}`;
-        location.coordinates = await geocodeAddress(fullAddress);
+        const coords = await geocodeAddress(fullAddress);
+        location.coordinates = buildGeoJSON(coords);
       } catch (err) {
         console.error("❌ Error al geocodificar:", err);
         return res
@@ -198,7 +231,6 @@ export const updateBusiness = async (req, res) => {
       }
     }
 
-    // Manejo de imágenes nuevas o existentes
     featuredImage =
       req.body.featuredImage ||
       req.body.featuredImageUrl ||
@@ -207,12 +239,10 @@ export const updateBusiness = async (req, res) => {
       req.body.profileImage ||
       req.body.profileImageUrl ||
       business.profileImage;
-
     if (req.body.existingImages) {
       images = parseJSONField(req.body.existingImages, business.images);
     }
 
-    // Asignar campos actualizados
     Object.assign(business, {
       name,
       description,
@@ -231,12 +261,10 @@ export const updateBusiness = async (req, res) => {
 
     await business.save();
 
-    // Notificar a seguidores
     const followers = await Follow.find({
       entityType: "business",
       entityId: business._id,
     });
-
     if (followers.length > 0) {
       const notifications = followers.map((f) => ({
         user: f.user,

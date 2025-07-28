@@ -10,7 +10,10 @@ import {
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
 import { validateBody } from "../middlewares/validator.middleware.js";
-import { categorySchema } from "../schemas/category.schema.js";
+import {
+  categoryCreateSchema,
+  categoryUpdateSchema,
+} from "../schemas/category.schema.js";
 
 import {
   singleProfileImageUpload, // ⬅️ Multer middleware
@@ -24,8 +27,9 @@ router.post(
   "/categories",
   authMiddleware,
   hasRole("admin"),
-  singleProfileImageUpload, // ⬅️ Carga archivo "profileImage"
-  handleProfileImage, // ⬅️ Sube a Cloudinary y guarda URL en req.body.profileImage
+  singleProfileImageUpload,
+  handleProfileImage,
+  validateBody(categoryCreateSchema), // ⬅️ validación para creación
   createCategory
 );
 
@@ -40,9 +44,9 @@ router.put(
   "/categories/:id",
   authMiddleware,
   hasRole("admin"),
-  singleProfileImageUpload, // ⬅️ Permite subir nueva imagen al editar
-  handleProfileImage, // ⬅️ Actualiza req.body.profileImage si hay nueva imagen
-  validateBody(categorySchema.partial()), // permite campos opcionales
+  singleProfileImageUpload, // ⬅️ primero multer extrae `req.body` y `req.file`
+  handleProfileImage, // ⬅️ luego sube imagen y pone la URL en `req.body`
+  validateBody(categoryUpdateSchema), // ⬅️ ahora sí `req.body` existe y es validado
   updateCategory
 );
 

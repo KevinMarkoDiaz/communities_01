@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-// ✅ Subesquema de ubicación
+// Subesquema de ubicación
 const locationSchema = new mongoose.Schema({
   address: { type: String, required: true },
   city: { type: String, required: true },
@@ -13,7 +13,7 @@ const locationSchema = new mongoose.Schema({
   },
 });
 
-// ✅ Esquema principal Event
+// Esquema principal
 const eventSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true },
   description: { type: String, required: true },
@@ -70,10 +70,20 @@ const eventSchema = new mongoose.Schema({
     default: "activo",
   },
 
-  // ✅ Likes de usuarios
+  coordinates: {
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point",
+    },
+    coordinates: {
+      type: [Number], // [lng, lat]
+      required: true,
+    },
+  },
+
   likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
-  // ✅ Feedback embebido (opcional)
   feedback: [
     {
       user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -83,5 +93,8 @@ const eventSchema = new mongoose.Schema({
     },
   ],
 });
+
+// ✅ Índice geoespacial
+eventSchema.index({ coordinates: "2dsphere" });
 
 export default mongoose.model("Event", eventSchema);

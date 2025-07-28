@@ -66,17 +66,49 @@ export const createCommunity = async (req, res) => {
 
 /**
  * Obtener todas las comunidades
- */
-export const getAllCommunities = async (req, res) => {
+ */ export const getAllCommunities = async (req, res) => {
   try {
-    const communities = await Community.find().populate("owner", "name email");
-    res.status(200).json({ communities });
+    const { lat, lng, page = 1, limit = 15 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const parsedLimit = parseInt(limit);
+
+    let query = {};
+    let totalCount;
+
+    if (lat && lng) {
+      const radiusInMiles = 80;
+      const radiusInRadians = radiusInMiles / 3963.2;
+
+      query = {
+        mapCenter: {
+          $geoWithin: {
+            $centerSphere: [
+              [parseFloat(lng), parseFloat(lat)],
+              radiusInRadians,
+            ],
+          },
+        },
+      };
+    }
+
+    totalCount = await Community.countDocuments(query);
+
+    const communities = await Community.find(query)
+      .skip(skip)
+      .limit(parsedLimit)
+      .populate("owner", "name email");
+
+    res.status(200).json({
+      communities,
+      totalPages: Math.ceil(totalCount / parsedLimit),
+      totalResults: totalCount,
+      currentPage: parseInt(page),
+    });
   } catch (error) {
     console.error("❌ Error en getAllCommunities:", error);
     res.status(500).json({ msg: "Error al obtener comunidades." });
   }
 };
-
 /**
  * Obtener comunidad por ID
  */

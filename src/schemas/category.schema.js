@@ -1,32 +1,39 @@
+// src/schemas/category.schema.js
 import { z } from "zod";
 
-/**
- * Esquema de validación para la creación de una categoría.
- */
-export const categorySchema = z.object({
-  name: z.string()
+const baseCategorySchema = z.object({
+  name: z
+    .string()
     .min(1, { message: "El nombre de la categoría es obligatorio" })
-    .max(100, { message: "El nombre no puede exceder 100 caracteres" })
+    .max(100)
     .trim(),
 
-  icon: z.string()
-    .url({ message: "El icono debe ser una URL válida" })
-    .max(255, { message: "El icono no puede exceder 255 caracteres" })
-    .optional(),
-
-  description: z.string()
+  description: z
+    .string()
     .max(1000, { message: "La descripción no puede exceder 1000 caracteres" })
     .optional(),
 
-  createdBy: z.string()
-    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de usuario creador inválido" }),
+  icon: z
+    .string()
+    .url({ message: "El icono debe ser una URL válida" })
+    .max(255)
+    .optional(),
 
-  createdByName: z.string()
-    .min(1, { message: "El nombre del creador es obligatorio" })
-    .max(100, { message: "El nombre del creador no puede exceder 100 caracteres" }),
-
-  createdByRole: z.enum(["admin", "business_owner", "user"], {
-    required_error: "El rol del creador es obligatorio",
-    invalid_type_error: "Rol inválido",
-  }),
+  profileImage: z
+    .string()
+    .url("La imagen debe ser una URL válida")
+    .max(500)
+    .optional(),
 });
+
+// Solo para creación (requiere datos del creador)
+export const categoryCreateSchema = baseCategorySchema.extend({
+  createdBy: z
+    .string()
+    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de usuario creador inválido" }),
+  createdByName: z.string().min(1).max(100),
+  createdByRole: z.enum(["admin", "business_owner", "user"]),
+});
+
+// Para edición (todos los campos opcionales)
+export const categoryUpdateSchema = baseCategorySchema.partial();
