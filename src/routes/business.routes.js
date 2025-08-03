@@ -8,7 +8,8 @@ import {
   getMyBusinesses,
   getPromotionsByBusiness,
   toggleLikeBusiness,
-  getBusinessesByCommunity, // ✅ Import nuevo
+  getBusinessesByCommunity,
+  getBusinessesForMapByCommunity, // ✅ Ruta final usada para el mapa
 } from "../controllers/business.controller.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
@@ -24,28 +25,53 @@ import { parseDataField } from "../middlewares/parseDataField.js";
 
 const router = Router();
 
+// ✅ Rutas específicas primero
+router.get("/map/:communityId", getBusinessesForMapByCommunity);
+router.get("/community/:communityId", getBusinessesByCommunity);
+
+// Obtener todos los negocios (con paginación)
+router.get("/", getAllBusinesses);
+
 // Crear negocio
 router.post(
   "/",
   authMiddleware,
-  hasRole("admin", "business_owner"),
+  hasRole("admin", "business_owner", "user"),
   uploaderMiddleware,
   imageProcessor,
   parseDataField,
   createBusiness
 );
 
-// Obtener todos los negocios
-router.get("/", getAllBusinesses);
-
-// ✅ Nueva ruta: Obtener negocios por comunidad
-router.get("/community/:communityId", getBusinessesByCommunity);
-
 // Obtener negocios propios
 router.get("/mine", authMiddleware, getMyBusinesses);
 
 // Obtener promociones de un negocio
 router.get("/:id/promotions", getPromotionsByBusiness);
+
+// Buscar negocios (autenticado)
+router.get("/search", authMiddleware, async (req, res) => {
+  const q = req.query.q;
+
+  if (!q || q.length < 2) {
+    return res
+      .status(400)
+      .json({ msg: "Se requiere una búsqueda de al menos 2 caracteres" });
+  }
+
+  try {
+    const resultados = await Business.find({
+      name: { $regex: q, $options: "i" },
+    })
+      .limit(10)
+      .select("name _id");
+
+    res.status(200).json(resultados);
+  } catch (error) {
+    console.error("Error en búsqueda de negocios:", error);
+    res.status(500).json({ msg: "Error al buscar negocios" });
+  }
+});
 
 // Obtener negocio por ID
 router.get("/:id", getBusinessById);
@@ -70,7 +96,9 @@ router.put(
         }
       };
 
-      ["location", "contact", "openingHours", "tags"].forEach(parseIfString);
+      ["categories", "location", "contact", "openingHours", "tags"].forEach(
+        parseIfString
+      );
 
       if (typeof req.body.isVerified === "string") {
         req.body.isVerified = req.body.isVerified === "true";
@@ -102,30 +130,6 @@ router.delete(
   hasRole("admin", "business_owner"),
   deleteBusiness
 );
-
-// Buscar negocios
-router.get("/search", authMiddleware, async (req, res) => {
-  const q = req.query.q;
-
-  if (!q || q.length < 2) {
-    return res
-      .status(400)
-      .json({ msg: "Se requiere una búsqueda de al menos 2 caracteres" });
-  }
-
-  try {
-    const resultados = await Business.find({
-      name: { $regex: q, $options: "i" },
-    })
-      .limit(10)
-      .select("name _id");
-
-    res.status(200).json(resultados);
-  } catch (error) {
-    console.error("Error en búsqueda de negocios:", error);
-    res.status(500).json({ msg: "Error al buscar negocios" });
-  }
-});
 
 // Like negocio
 router.put("/:id/like", authMiddleware, toggleLikeBusiness);

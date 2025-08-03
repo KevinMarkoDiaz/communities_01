@@ -53,13 +53,20 @@ const locationSchema = z.object({
   }),
 });
 
-// ✅ Esquema completo de negocio
+// ✅ Esquema completo de negocio actualizado con múltiples categorías
 export const businessSchema = z.object({
   name: z.string().min(1).max(100).trim(),
   description: z.string().max(1000),
-  category: z
-    .string()
-    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de categoría inválido" }),
+
+  // ⬇️ Ahora permite múltiples categorías (array de ObjectId válidos)
+  categories: z
+    .array(
+      z
+        .string()
+        .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de categoría inválido" })
+    )
+    .min(1, { message: "Debes seleccionar al menos una categoría" }),
+
   community: z
     .string()
     .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de comunidad inválido" }),
@@ -71,6 +78,6 @@ export const businessSchema = z.object({
   featuredImage: z.string().url().optional(),
   profileImage: z.string().url().optional(),
   images: z.array(z.string().url()).optional(),
-
+  isPremium: z.boolean().optional(),
   tags: z.array(z.string()).optional(),
 });

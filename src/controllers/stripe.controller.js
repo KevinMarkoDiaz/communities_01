@@ -2,6 +2,7 @@
 import Stripe from "stripe";
 import dotenv from "dotenv";
 import User from "../models/user.model.js";
+import { syncUserPremiumStatus } from "../utils/syncUserPremiumStatus.js";
 
 dotenv.config();
 
@@ -68,8 +69,8 @@ export const createCheckoutSession = async (req, res) => {
  */
 export const stripeWebhookHandler = async (req, res) => {
   const sig = req.headers["stripe-signature"];
-
   let event;
+
   try {
     event = stripe.webhooks.constructEvent(
       req.body,
@@ -92,40 +93,10 @@ export const stripeWebhookHandler = async (req, res) => {
           user.isPremium = true;
           user.subscriptionId = data.subscription;
           await user.save();
-        } else {
-          console.warn(
-            "⚠️ Usuario no encontrado en checkout.session.completed"
-          );
+          await syncUserPremiumStatus(user._id, true);
         }
       } catch (err) {
         console.error("⚠️ Error actualizando usuario:", err);
-      }
-      break;
-
-    case "invoice.paid":
-      break;
-
-    case "invoice.payment_failed":
-      try {
-        const user = await User.findOne({ subscriptionId: data.subscription });
-        if (user) {
-          console.warn(`❌ Pago fallido para usuario: ${user.email}`);
-          // Aquí podrías enviar una notificación o email
-        }
-      } catch (err) {
-        console.error("⚠️ Error al manejar invoice.payment_failed:", err);
-      }
-      break;
-
-    case "customer.subscription.updated":
-      try {
-        const user = await User.findOne({ subscriptionId: data.id });
-        if (user) {
-          console.log(`🔄 Subscripción actualizada para: ${user.email}`);
-          // Si hay distintos planes, podrías actualizar aquí
-        }
-      } catch (err) {
-        console.error("⚠️ Error al manejar subscription.updated:", err);
       }
       break;
 
@@ -136,6 +107,7 @@ export const stripeWebhookHandler = async (req, res) => {
           user.isPremium = false;
           user.subscriptionId = null;
           await user.save();
+          await syncUserPremiumStatus(user._id, false);
           console.log(`🛑 Premium cancelado para: ${user.email}`);
         }
       } catch (err) {

@@ -12,7 +12,7 @@ import {
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
 import { validateBody } from "../middlewares/validator.middleware.js";
-import { eventSchema } from "../schemas/event.schema.js";
+import { eventSchema, partialEventSchema } from "../schemas/event.schema.js"; // 👈 corregido aquí
 import {
   imageProcessor,
   uploaderMiddleware,
@@ -26,7 +26,7 @@ const router = Router();
 router.post(
   "/",
   authMiddleware,
-  hasRole("admin", "business_owner"),
+  hasRole("admin", "business_owner", "user"),
   uploaderMiddleware,
   imageProcessor,
   parseDataField,
@@ -43,7 +43,6 @@ router.get("/mine", authMiddleware, getMyEventsController);
 
 // Obtener evento por ID
 router.get("/:id", getEventById);
-// Nueva ruta de resumen
 
 // Actualizar evento
 router.put(
@@ -54,7 +53,7 @@ router.put(
   imageProcessor,
   parseDataField,
   addOrganizerFields,
-  validateBody(eventSchema.partial()), // permite campos opcionales
+  validateBody(partialEventSchema), // ✅ corregido aquí
   updateEvent
 );
 

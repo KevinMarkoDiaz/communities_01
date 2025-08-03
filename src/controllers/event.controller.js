@@ -7,7 +7,7 @@ import { geocodeAddress } from "../utils/geocode.js";
 import EventView from "../models/eventView.model.js";
 import Rating from "../models/rating.model.js";
 import Comment from "../models/comment.model.js";
-
+import Community from "../models/community.model.js";
 // 🧠 Limpia links vacíos
 const cleanLink = (val) =>
   typeof val === "string" && val.trim() === "" ? undefined : val;
@@ -39,6 +39,8 @@ const camposActualizables = [
 
 // ✅ Crear evento
 export const createEvent = async (req, res) => {
+  console.log("📥 Datos recibidos:", req.body);
+
   try {
     const {
       title,
@@ -46,7 +48,6 @@ export const createEvent = async (req, res) => {
       date,
       time,
       location,
-      coordinates,
       communities = [],
       businesses = [],
       categories = [],
@@ -75,32 +76,84 @@ export const createEvent = async (req, res) => {
         ? "Business"
         : "User";
 
-    // 🗺 Geocodificar si es evento presencial
+    // 🧭 Coordenadas
     let enrichedLocation = location;
-    let geoCoordinates;
+    let geoCoordinates = undefined;
 
-    if (!isOnline && location?.address && location?.city && location?.state) {
-      const fullAddress = `${location.address}, ${location.city}, ${
-        location.state
-      }, ${location.country || "USA"}`;
-      const coords = await geocodeAddress(fullAddress); // [lat, lng]
+    if (isOnline) {
+      console.log("🌐 Evento virtual. Buscando coordenadas de comunidades...");
 
-      enrichedLocation = { ...location, coordinates: coords };
+      if (communities.length > 0) {
+        for (const communityId of communities) {
+          const community = await Community.findById(communityId);
+          console.log("🔍 Comunidad:", community?.name);
 
-      // ✅ Guardar como GeoJSON ordenado
-      geoCoordinates = {
-        type: "Point",
-        coordinates: [coords[1], coords[0]], // [lng, lat]
-      };
+          if (
+            community?.coordinates?.coordinates &&
+            Array.isArray(community.coordinates.coordinates) &&
+            community.coordinates.coordinates.length === 2
+          ) {
+            geoCoordinates = {
+              type: "Point",
+              coordinates: community.coordinates.coordinates,
+            };
+            break; // 🛑 Usamos la primera válida
+          }
+        }
+      }
+
+      if (!geoCoordinates) {
+        console.log(
+          "⚠️ Ninguna comunidad tiene coordenadas válidas. Asignando coordenadas de Dallas por defecto."
+        );
+        geoCoordinates = {
+          type: "Point",
+          coordinates: [-96.797, 32.7767], // 📍 Centro de Dallas, TX
+        };
+      }
+    } else {
+      console.log("📍 Evento presencial. Geocodificando dirección...");
+
+      if (location?.address && location?.city && location?.state) {
+        const fullAddress = `${location.address}, ${location.city}, ${
+          location.state
+        }, ${location.country || "USA"}`;
+        const coords = await geocodeAddress(fullAddress);
+
+        console.log("🌐 Dirección completa:", fullAddress);
+        console.log("📍 Coordenadas obtenidas:", coords);
+
+        if (
+          !coords ||
+          typeof coords.lat !== "number" ||
+          typeof coords.lng !== "number"
+        ) {
+          return res
+            .status(400)
+            .json({ msg: "Error al obtener coordenadas de la dirección." });
+        }
+
+        enrichedLocation = { ...location };
+        if (enrichedLocation.coordinates) {
+          delete enrichedLocation.coordinates;
+        }
+
+        geoCoordinates = {
+          type: "Point",
+          coordinates: [coords.lng, coords.lat],
+        };
+      } else {
+        console.log("⚠️ Dirección incompleta. No se geocodificará.");
+      }
     }
 
-    const newEvent = new Event({
+    // 🧱 Construcción del evento (condicional para coordinates)
+    const eventData = {
       title,
       description,
       date,
       time,
       location: enrichedLocation,
-      coordinates: geoCoordinates,
       communities,
       businesses,
       categories,
@@ -120,9 +173,31 @@ export const createEvent = async (req, res) => {
       organizer: realOrganizer,
       organizerModel: realModel,
       createdBy: req.user.id,
-    });
+    };
+
+    if (
+      geoCoordinates?.type === "Point" &&
+      Array.isArray(geoCoordinates.coordinates) &&
+      geoCoordinates.coordinates.length === 2 &&
+      typeof geoCoordinates.coordinates[0] === "number" &&
+      typeof geoCoordinates.coordinates[1] === "number"
+    ) {
+      console.log("✅ Coordenadas válidas:", geoCoordinates.coordinates);
+      eventData.coordinates = geoCoordinates;
+    } else {
+      console.log("🚫 Coordenadas no válidas o ausentes. No se incluirán.");
+    }
+
+    const newEvent = new Event(eventData);
+
+    // ✅ Si el creador es premium, marcamos el evento como premium
+    if (req.user.isPremium === true) {
+      newEvent.isPremium = true;
+    }
 
     await newEvent.save();
+
+    console.log("✅ Evento guardado correctamente en la base de datos.");
 
     // 🔔 Notificar seguidores
     if (businesses.length) {

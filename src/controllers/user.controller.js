@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import User from "../models/user.model.js";
 import { validationResult } from "express-validator";
+import { syncUserPremiumStatus } from "../utils/syncUserPremiumStatus.js";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -52,12 +53,10 @@ export const getUserById = async (req, res) => {
  */
 export const updateUser = async (req, res) => {
   const { id } = req.params;
-
   if (!isValidObjectId(id)) {
     return res.status(400).json({ message: "ID inválido" });
   }
 
-  // Validación express-validator (si estás usando)
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res
@@ -76,6 +75,7 @@ export const updateUser = async (req, res) => {
     if (!user)
       return res.status(404).json({ message: "Usuario no encontrado" });
 
+    const wasPremium = user.isPremium;
     const {
       name,
       lastName,
@@ -85,9 +85,9 @@ export const updateUser = async (req, res) => {
       location,
       country,
       community,
+      isPremium,
     } = req.body;
 
-    // Solo campos permitidos
     if (name) user.name = name;
     if (lastName) user.lastName = lastName;
     if (title) user.title = title;
@@ -96,9 +96,14 @@ export const updateUser = async (req, res) => {
     if (location) user.location = location;
     if (country) user.country = country;
     if (community) user.community = community;
+    if (typeof isPremium === "boolean") user.isPremium = isPremium;
 
     user.updatedAt = Date.now();
     const updatedUser = await user.save();
+
+    if (typeof isPremium === "boolean" && isPremium !== wasPremium) {
+      await syncUserPremiumStatus(user._id, isPremium);
+    }
 
     res.status(200).json({
       message: "Usuario actualizado",
@@ -114,6 +119,7 @@ export const updateUser = async (req, res) => {
         profileImage: updatedUser.profileImage,
         role: updatedUser.role,
         community: updatedUser.community,
+        isPremium: updatedUser.isPremium,
       },
     });
   } catch (error) {
@@ -160,11 +166,9 @@ export const buscarUsuariosPorNombre = async (req, res) => {
   const { name } = req.query;
 
   if (!name || name.trim().length < 2) {
-    return res
-      .status(400)
-      .json({
-        message: "El nombre de búsqueda debe tener al menos 2 caracteres",
-      });
+    return res.status(400).json({
+      message: "El nombre de búsqueda debe tener al menos 2 caracteres",
+    });
   }
 
   try {

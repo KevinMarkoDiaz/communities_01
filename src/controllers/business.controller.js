@@ -5,6 +5,7 @@ import Notification from "../models/Notification.model.js";
 import { geocodeAddress } from "../utils/geocode.js";
 import businessView from "../models/businessView.model.js";
 import Follow from "../models/follow.model.js";
+import User from "../models/user.model.js";
 
 // Utils
 function buildGeoJSON({ lng, lat }) {
@@ -27,7 +28,7 @@ const parseJSONField = (field, fallback = {}) => {
  */
 export const createBusiness = async (req, res) => {
   try {
-    if (!["admin", "business_owner"].includes(req.user.role)) {
+    if (!["admin", "business_owner", "user"].includes(req.user.role)) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para crear un negocio." });
@@ -36,7 +37,7 @@ export const createBusiness = async (req, res) => {
     let {
       name,
       description,
-      category,
+      categories,
       community,
       location,
       contact,
@@ -48,6 +49,7 @@ export const createBusiness = async (req, res) => {
       images = [],
     } = req.body;
 
+    categories = parseJSONField(categories);
     location = parseJSONField(location);
     contact = parseJSONField(contact);
     openingHours = parseJSONField(openingHours);
@@ -71,26 +73,35 @@ export const createBusiness = async (req, res) => {
     const coords = await geocodeAddress(fullAddress);
     location.coordinates = buildGeoJSON(coords);
 
+    const user = await User.findById(req.user.id);
+
     const newBusiness = new Business({
       name,
       description,
-      category,
+      categories,
       community,
       location,
       contact,
       openingHours,
       tags,
       isVerified: isVerified ?? false,
-      owner: req.user.id,
+      owner: user._id,
       featuredImage,
       profileImage,
       images,
+      isPremium: user.isPremium, // sincronizar estado premium
     });
 
     await newBusiness.save();
 
+    // Si el usuario aún es "user", promoverlo a "business_owner"
+    if (user.role === "user") {
+      user.role = "business_owner";
+      await user.save();
+    }
+
     const populatedBusiness = await Business.findById(newBusiness._id).populate(
-      "category community owner"
+      "categories community owner"
     );
 
     res.status(201).json({
@@ -131,7 +142,7 @@ export const getAllBusinesses = async (req, res) => {
 
     const [businesses, total] = await Promise.all([
       Business.find(query)
-        .populate("category community owner")
+        .populate("categories community owner")
         .limit(parseInt(limit))
         .skip(skip),
       Business.countDocuments(query),
@@ -156,7 +167,7 @@ export const getAllBusinesses = async (req, res) => {
 export const getBusinessById = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id).populate(
-      "category community owner"
+      "categories  community owner"
     );
 
     if (!business) {
@@ -185,7 +196,7 @@ export const updateBusiness = async (req, res) => {
     let {
       name,
       description,
-      category,
+      categories,
       community,
       location,
       contact,
@@ -198,6 +209,7 @@ export const updateBusiness = async (req, res) => {
       owner,
     } = req.body;
 
+    categories = parseJSONField(categories);
     location = parseJSONField(location);
     contact = parseJSONField(contact);
     openingHours = parseJSONField(openingHours);
@@ -253,7 +265,7 @@ export const updateBusiness = async (req, res) => {
     Object.assign(business, {
       name,
       description,
-      category,
+      categories,
       community,
       location,
       contact,
@@ -287,7 +299,7 @@ export const updateBusiness = async (req, res) => {
     }
 
     const populated = await Business.findById(business._id).populate(
-      "category community owner"
+      "categories  community owner"
     );
 
     res.status(200).json({
@@ -332,7 +344,7 @@ export const deleteBusiness = async (req, res) => {
 export const getMyBusinesses = async (req, res) => {
   try {
     const businesses = await Business.find({ owner: req.user.id }).populate(
-      "category community owner"
+      "categories community owner"
     );
 
     res.status(200).json({ businesses });
@@ -401,15 +413,101 @@ export const toggleLikeBusiness = async (req, res) => {
 
 export const getBusinessesByCommunity = async (req, res) => {
   try {
+    const { lat, lng } = req.query;
     const { communityId } = req.params;
 
-    const businesses = await Business.find({ community: communityId }).populate(
-      "category community owner"
-    );
+    if (!lat || !lng) {
+      return res.status(400).json({ msg: "Faltan coordenadas del usuario." });
+    }
+
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
+    const radiusInMiles = 80;
+    const earthRadiusInMiles = 3963.2;
+    const radiusInRadians = radiusInMiles / earthRadiusInMiles;
+
+    const query = {
+      "location.coordinates": {
+        $geoWithin: {
+          $centerSphere: [[parsedLng, parsedLat], radiusInRadians],
+        },
+      },
+    };
+
+    // ✅ Agregar filtro por comunidad si se proporciona
+    if (communityId) {
+      query.community = communityId;
+    }
+
+    const businesses = await Business.find(query)
+      .select(
+        "_id name profileImage openingHours location.coordinates categories"
+      )
+      .populate({
+        path: "categories",
+        select: "name",
+      });
 
     res.status(200).json({ businesses });
   } catch (error) {
-    console.error("❌ Error en getBusinessesByCommunity:", error);
-    res.status(500).json({ msg: "Error al obtener negocios de la comunidad." });
+    console.error("❌ Error en getAllBusinessesForMap:", error);
+    res.status(500).json({ msg: "Error al obtener negocios para el mapa." });
+  }
+};
+
+// ✅ GET /api/businesses/map
+export const getBusinessesForMapByCommunity = async (req, res) => {
+  try {
+    const { communityId } = req.params;
+    const { lat, lng } = req.query;
+
+    console.log("🌐 communityId:", communityId);
+    console.log("📍 lat:", lat, "lng:", lng);
+
+    if (!communityId || !lat || !lng) {
+      console.warn("⚠️ Faltan parámetros requeridos");
+      return res.status(400).json({ msg: "Faltan parámetros requeridos." });
+    }
+
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
+
+    if (isNaN(parsedLat) || isNaN(parsedLng)) {
+      console.warn("⚠️ Coordenadas inválidas:", { parsedLat, parsedLng });
+      return res.status(400).json({ msg: "Coordenadas inválidas." });
+    }
+
+    const radiusInMiles = 80;
+    const earthRadiusInMiles = 3963.2;
+    const radiusInRadians = radiusInMiles / earthRadiusInMiles;
+
+    const query = {
+      community: communityId,
+      "location.coordinates": {
+        $geoWithin: {
+          $centerSphere: [[parsedLng, parsedLat], radiusInRadians],
+        },
+      },
+    };
+
+    console.log("🧪 Query:", JSON.stringify(query, null, 2));
+
+    const businesses = await Business.find(query)
+      .select(
+        "_id name profileImage openingHours location.coordinates categories"
+      )
+      .populate({
+        path: "categories",
+        select: "name",
+      });
+
+    console.log("✅ Negocios encontrados:", businesses.length);
+
+    res.status(200).json({ businesses });
+  } catch (error) {
+    console.error("❌ Error en getBusinessesForMapByCommunity:", error);
+    res
+      .status(500)
+      .json({ msg: "Error al obtener negocios por comunidad para el mapa." });
   }
 };

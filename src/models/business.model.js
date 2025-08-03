@@ -76,7 +76,6 @@ const locationSchema = new mongoose.Schema({
     },
   },
 });
-locationSchema.index({ coordinates: "2dsphere" }); // ✅ Índice geoespacial
 
 // 🏪 Modelo principal de negocio
 const businessSchema = new mongoose.Schema(
@@ -84,11 +83,14 @@ const businessSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     description: { type: String, required: true },
 
-    category: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-      required: true,
-    },
+    categories: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+        required: true,
+      },
+    ],
+
     community: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Community",
@@ -114,7 +116,10 @@ const businessSchema = new mongoose.Schema(
     isVerified: { type: Boolean, default: false },
 
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-
+    isPremium: {
+      type: Boolean,
+      default: false,
+    },
     feedback: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -138,5 +143,8 @@ businessSchema.virtual("promotions", {
 
 businessSchema.set("toObject", { virtuals: true });
 businessSchema.set("toJSON", { virtuals: true });
+
+// ✅ Índice geoespacial correcto
+businessSchema.index({ "location.coordinates": "2dsphere" });
 
 export default mongoose.model("Business", businessSchema);

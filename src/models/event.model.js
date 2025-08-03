@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
 
-// Subesquema de ubicación
+// Subesquema de ubicación (sin required)
 const locationSchema = new mongoose.Schema({
-  address: { type: String, required: true },
-  city: { type: String, required: true },
-  state: { type: String, required: true },
+  address: { type: String },
+  city: { type: String },
+  state: { type: String },
   zipCode: { type: String, default: "" },
   country: { type: String, default: "USA" },
   coordinates: {
@@ -20,7 +20,26 @@ const eventSchema = new mongoose.Schema({
   date: { type: String, required: true },
   time: { type: String, required: true },
 
-  location: { type: locationSchema, required: false },
+  location: {
+    type: locationSchema,
+    required: false,
+    validate: {
+      validator: function (value) {
+        // Si el evento es presencial, validar address, city y state
+        if (!this.isOnline) {
+          return (
+            value &&
+            value.address?.trim() &&
+            value.city?.trim() &&
+            value.state?.trim()
+          );
+        }
+        return true;
+      },
+      message:
+        "Los campos de dirección, ciudad y estado son obligatorios si el evento no es online.",
+    },
+  },
 
   featuredImage: { type: String, default: "/placeholder-evento.jpg" },
   images: [String],
@@ -78,10 +97,15 @@ const eventSchema = new mongoose.Schema({
     },
     coordinates: {
       type: [Number], // [lng, lat]
-      required: true,
+      required: function () {
+        return !this.isOnline;
+      },
     },
   },
-
+  isPremium: {
+    type: Boolean,
+    default: false,
+  },
   likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
   feedback: [
