@@ -494,7 +494,7 @@ export const getBusinessesForMapByCommunity = async (req, res) => {
 
     const businesses = await Business.find(query)
       .select(
-        "_id name profileImage openingHours location.coordinates categories"
+        "_id name profileImage openingHours location.coordinates categories isPremium"
       )
       .populate({
         path: "categories",
