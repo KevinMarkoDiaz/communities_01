@@ -49,7 +49,7 @@ export const buscarGlobal = async (req, res) => {
         ...geoFiltroNegocios,
         $or: [{ name: regex }, { description: regex }, { tags: regex }],
       })
-        .select("_id name featuredImage")
+        .select("_id name featuredImage isPremium")
         .limit(10)
         .lean(),
 
@@ -57,7 +57,7 @@ export const buscarGlobal = async (req, res) => {
         ...geoFiltroEventos,
         $or: [{ title: regex }, { description: regex }, { tags: regex }],
       })
-        .select("_id title featuredImage")
+        .select("_id title featuredImage isPremium")
         .limit(10)
         .lean(),
 
@@ -76,12 +76,14 @@ export const buscarGlobal = async (req, res) => {
         id: n._id,
         titulo: n.name,
         imagen: n.featuredImage,
+        isPremium: n.isPremium || false,
       })),
       ...eventos.map((e) => ({
         tipo: "evento",
         id: e._id,
         titulo: e.title,
         imagen: e.featuredImage,
+        isPremium: e.isPremium || false,
       })),
       ...comunidades.map((c) => ({
         tipo: "comunidad",
