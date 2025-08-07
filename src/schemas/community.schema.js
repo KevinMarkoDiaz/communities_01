@@ -44,8 +44,19 @@ const baseFields = {
   }),
 };
 
+// 🟣 Esquema para enlaces externos útiles
+const externalLinkSchema = z.object({
+  title: z.string().min(1, { message: "El título del enlace es obligatorio" }),
+  url: z.string().url({ message: "El enlace debe ser una URL válida" }),
+  type: z.enum(["facebook", "instagram", "whatsapp", "otro"]).default("otro"),
+  description: z.string().optional(),
+});
+
 // 🟢 Validación para crear comunidad
-export const communitySchema = z.object(baseFields);
+export const communitySchema = z.object({
+  ...baseFields,
+  externalLinks: z.array(externalLinkSchema).optional(),
+});
 
 // 🟡 Validación para actualizar comunidad
 export const communityUpdateSchema = z.object({
@@ -56,6 +67,7 @@ export const communityUpdateSchema = z.object({
   language: baseFields.language.optional(),
   owner: baseFields.owner.optional(),
   mapCenter: baseFields.mapCenter.optional(),
+  externalLinks: z.array(externalLinkSchema).optional(),
 });
 
 // 🟣 Esquema extendido para la respuesta completa
@@ -149,12 +161,12 @@ export const fullCommunitySchema = communitySchema.extend({
     })
     .optional(),
 
-  region: z.string().optional(),
+  externalLinks: z.array(externalLinkSchema).optional(),
 
+  region: z.string().optional(),
   slug: z.string().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
-
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
   status: z.enum(["Inactiva", "Pendiente", "Publicada"]).optional(),

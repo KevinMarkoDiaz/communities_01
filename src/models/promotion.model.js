@@ -14,6 +14,10 @@ const promotionSchema = new mongoose.Schema(
       ],
       required: true,
     },
+    isPremium: {
+      type: Boolean,
+      default: false,
+    },
     featuredImage: { type: String, required: true },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },

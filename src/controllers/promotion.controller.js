@@ -92,6 +92,7 @@ export const createPromotion = async (req, res) => {
       community,
       featuredImage,
       maxClaims,
+      isPremium: req.user.isPremium === true, // ✅ Asignar según estado premium
     });
 
     const follows = await Follow.find({
@@ -148,9 +149,12 @@ export const updatePromotion = async (req, res) => {
     }
 
     Object.assign(promo, parsed.data);
+
     if (req.body.featuredImage) {
       promo.featuredImage = req.body.featuredImage;
     }
+
+    promo.isPremium = req.user.isPremium === true; // ✅ Recalcular estado premium
 
     await promo.save();
 

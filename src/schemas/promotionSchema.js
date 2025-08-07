@@ -3,6 +3,8 @@ import { z } from "zod";
 export const promotionSchema = z.object({
   name: z.string().min(1, "El nombre es obligatorio").max(100),
   description: z.string().min(1, "La descripción es obligatoria").max(2000),
+  isPremium: z.boolean().optional(),
+
   type: z.union([
     z.literal("promo_fin_de_semana"),
     z.literal("descuentos_imperdibles"),

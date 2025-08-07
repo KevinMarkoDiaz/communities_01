@@ -1,8 +1,8 @@
+import mongoose from "mongoose";
 import Conversation from "../models/conversation.model.js";
 import Business from "../models/business.model.js";
 import Event from "../models/event.model.js";
 import Message from "../models/message.model.js";
-import mongoose from "mongoose";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -29,24 +29,22 @@ export const createOrGetConversation = async (req, res) => {
   }
 
   try {
-    let entityModel = entityType === "business" ? Business : Event;
+    const entityModel = entityType === "business" ? Business : Event;
     const entity = await entityModel.findById(entityId);
 
     if (!entity) {
-      return res
-        .status(404)
-        .json({
-          message: `${
-            entityType === "business" ? "Negocio" : "Evento"
-          } no encontrado.`,
-        });
+      return res.status(404).json({
+        message: `${
+          entityType === "business" ? "Negocio" : "Evento"
+        } no encontrado.`,
+      });
     }
 
-    // Validación: evitar que el usuario hable consigo mismo
     const ownerId =
       entityType === "business"
         ? entity.owner?.toString()
         : entity.createdBy?.toString();
+
     if (ownerId === req.user._id.toString()) {
       return res
         .status(400)
@@ -72,7 +70,7 @@ export const createOrGetConversation = async (req, res) => {
       .populate({
         path: "entityId",
         model: entityType === "business" ? "Business" : "Event",
-        select: entityType === "business" ? "name" : "title",
+        select: entityType === "business" ? "name logo" : "title featuredImage",
       });
 
     res.status(200).json(populated);
@@ -89,47 +87,120 @@ export const createOrGetConversation = async (req, res) => {
  */
 export const getMyConversations = async (req, res) => {
   try {
+    const userId = req.user._id;
     let conversations = [];
+
+    let businessIds = [];
+    let eventIds = [];
 
     if (["business_owner", "admin"].includes(req.user.role)) {
       const [myBusinesses, myEvents] = await Promise.all([
-        Business.find({ owner: req.user._id }).select("_id"),
-        Event.find({ createdBy: req.user._id }).select("_id"),
+        Business.find({ owner: userId }).select("_id"),
+        Event.find({ createdBy: userId }).select("_id"),
       ]);
 
-      const businessIds = myBusinesses.map((b) => b._id);
-      const eventIds = myEvents.map((e) => e._id);
+      businessIds = myBusinesses.map((b) => b._id);
+      eventIds = myEvents.map((e) => e._id);
 
       const [businessConvs, eventConvs] = await Promise.all([
         Conversation.find({
           entityType: "business",
           entityId: { $in: businessIds },
         })
-          .populate("user", "name")
-          .populate({ path: "entityId", model: "Business", select: "name" }),
-        Conversation.find({ entityType: "event", entityId: { $in: eventIds } })
-          .populate("user", "name")
-          .populate({ path: "entityId", model: "Event", select: "title" }),
+          .populate("user", "name profileImage")
+          .populate({
+            path: "entityId",
+            model: "Business",
+            select: "name logo",
+          }),
+
+        Conversation.find({
+          entityType: "event",
+          entityId: { $in: eventIds },
+        })
+          .populate("user", "name profileImage")
+          .populate({
+            path: "entityId",
+            model: "Event",
+            select: "title featuredImage",
+          }),
       ]);
 
-      conversations = businessConvs.concat(eventConvs);
+      const mensajesEnviados = await Message.find({ sender: userId }).select(
+        "conversation"
+      );
+      const convIds = [
+        ...new Set(mensajesEnviados.map((m) => m.conversation.toString())),
+      ];
+
+      const [sentConversations, sentEventConvs] = await Promise.all([
+        Conversation.find({
+          _id: { $in: convIds },
+          entityType: "business",
+        })
+          .populate("user", "name profileImage")
+          .populate({
+            path: "entityId",
+            model: "Business",
+            select: "name logo",
+          }),
+
+        Conversation.find({
+          _id: { $in: convIds },
+          entityType: "event",
+        })
+          .populate("user", "name profileImage")
+          .populate({
+            path: "entityId",
+            model: "Event",
+            select: "title featuredImage",
+          }),
+      ]);
+
+      const todas = [
+        ...businessConvs,
+        ...eventConvs,
+        ...sentConversations,
+        ...sentEventConvs,
+      ];
+
+      // Eliminar duplicados por _id
+      const mapaUnico = new Map();
+      todas.forEach((c) => {
+        if (c?.entityId) {
+          mapaUnico.set(c._id.toString(), c);
+        }
+      });
+
+      conversations = Array.from(mapaUnico.values());
     } else {
       const [businessConvs, eventConvs] = await Promise.all([
-        Conversation.find({ user: req.user._id, entityType: "business" })
-          .populate("user", "name")
-          .populate({ path: "entityId", model: "Business", select: "name" }),
-        Conversation.find({ user: req.user._id, entityType: "event" })
-          .populate("user", "name")
-          .populate({ path: "entityId", model: "Event", select: "title" }),
+        Conversation.find({ user: userId, entityType: "business" })
+          .populate("user", "name profileImage")
+          .populate({
+            path: "entityId",
+            model: "Business",
+            select: "name logo",
+          }),
+
+        Conversation.find({ user: userId, entityType: "event" })
+          .populate("user", "name profileImage")
+          .populate({
+            path: "entityId",
+            model: "Event",
+            select: "title featuredImage",
+          }),
       ]);
 
-      conversations = businessConvs.concat(eventConvs);
+      conversations = [...businessConvs, ...eventConvs].filter(
+        (c) => c.entityId
+      );
     }
 
-    // Ordenar por fecha de actualización
+    // Ordenar por última actualización
     conversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
-    // Enriquecer con último mensaje y mensajes no leídos
+    // Enriquecer con mensaje más reciente y conteo de no leídos
     const enriched = await Promise.all(
       conversations.map(async (conv) => {
         const [lastMsg, unreadCount] = await Promise.all([
@@ -138,16 +209,25 @@ export const getMyConversations = async (req, res) => {
             .lean(),
           Message.countDocuments({
             conversation: conv._id,
-            sender: { $ne: req.user._id },
+            sender: { $ne: userId },
             isRead: false,
           }),
         ]);
 
+        const entity = conv.entityId;
+        const isBusiness = conv.entityType === "business";
+
         return {
-          ...conv.toObject(),
+          _id: conv._id,
+          name: isBusiness ? entity?.name : entity?.title,
+          image: isBusiness ? entity?.logo : entity?.featuredImage,
+          tipo: conv.entityType,
+          lastMessage: lastMsg?.text || "",
+          lastMessageIsRead: lastMsg?.isRead ?? false,
           lastMessageSender: lastMsg?.sender?.toString() || null,
-          lastMessageRead: lastMsg?.isRead ?? false,
           unreadCount,
+          entityId: entity?._id?.toString() || conv.entityId,
+          user: conv.user,
         };
       })
     );

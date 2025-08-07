@@ -1,9 +1,11 @@
+// models/Community.js
+
 import mongoose from "mongoose";
 
 const communitySchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true },
-    slug: { type: String, unique: true }, // URL amigable
+    slug: { type: String, unique: true },
 
     flagImage: { type: String },
     bannerImage: { type: String },
@@ -21,13 +23,11 @@ const communitySchema = new mongoose.Schema(
     negocios: [{ type: mongoose.Schema.Types.ObjectId, ref: "Business" }],
     eventos: [{ type: mongoose.Schema.Types.ObjectId, ref: "Event" }],
 
-    // 🔢 Métricas y estadística
     memberCount: { type: Number, default: 0 },
     businessCount: { type: Number, default: 0 },
     eventCount: { type: Number, default: 0 },
     mostPopularCategory: { type: String },
 
-    // 🌍 Info cultural y social
     populationEstimate: { type: Number },
     originCountryInfo: {
       name: String,
@@ -43,7 +43,6 @@ const communitySchema = new mongoose.Schema(
       },
     ],
 
-    // ⭐ Engagement
     featuredBusinesses: [
       { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
     ],
@@ -75,7 +74,20 @@ const communitySchema = new mongoose.Schema(
       youtube: String,
     },
 
-    // 🌐 Geolocalización
+    // ✅ NUEVO: Enlaces externos relevantes
+    externalLinks: [
+      {
+        title: String,
+        url: String,
+        type: {
+          type: String,
+          enum: ["facebook", "instagram", "whatsapp", "otro"],
+          default: "otro",
+        },
+        description: String,
+      },
+    ],
+
     region: String,
     mapCenter: {
       type: {
@@ -89,11 +101,9 @@ const communitySchema = new mongoose.Schema(
       },
     },
 
-    // 🔍 SEO
     metaTitle: String,
     metaDescription: String,
 
-    // ⚙️ Estado
     status: {
       type: String,
       enum: ["Inactiva", "Pendiente", "Publicada"],
@@ -104,7 +114,6 @@ const communitySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// 📍 Índice geoespacial para búsquedas por radio
 communitySchema.index({ mapCenter: "2dsphere" });
 
 const Community = mongoose.model("Community", communitySchema);

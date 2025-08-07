@@ -51,6 +51,9 @@ export const createCommunity = async (req, res) => {
       owner: req.user.id,
       status: "Publicada",
       verified: false,
+      externalLinks: Array.isArray(data.externalLinks)
+        ? data.externalLinks
+        : [],
     });
 
     await newCommunity.save();
@@ -66,7 +69,8 @@ export const createCommunity = async (req, res) => {
 
 /**
  * Obtener todas las comunidades
- */ export const getAllCommunities = async (req, res) => {
+ */
+export const getAllCommunities = async (req, res) => {
   try {
     const { lat, lng, page = 1, limit = 15 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -109,6 +113,7 @@ export const createCommunity = async (req, res) => {
     res.status(500).json({ msg: "Error al obtener comunidades." });
   }
 };
+
 /**
  * Obtener comunidad por ID
  */
@@ -217,6 +222,7 @@ export const updateCommunity = async (req, res) => {
       "food",
       "resources",
       "socialMediaLinks",
+      "externalLinks",
       "region",
       "mapCenter",
       "metaTitle",
@@ -245,7 +251,7 @@ export const updateCommunity = async (req, res) => {
         entityType: "community",
         entityId: community._id,
         message: `La comunidad "${community.name}" ha actualizado su información.`,
-        link: `/comunidades/${community.slug}`,
+        link: `/comunidades/${community._id}`,
         read: false,
       }));
 
@@ -310,7 +316,6 @@ export const getMyCommunities = async (req, res) => {
 /**
  * Resumen de comunidad
  */
-
 export const getCommunitySummary = async (req, res) => {
   const { communityId } = req.params;
 
