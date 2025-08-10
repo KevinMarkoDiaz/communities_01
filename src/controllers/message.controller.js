@@ -4,6 +4,9 @@ import Conversation from "../models/conversation.model.js";
 import Business from "../models/business.model.js";
 import Event from "../models/event.model.js";
 import Notification from "../models/Notification.model.js";
+import User from "../models/user.model.js";
+import EmailThrottle from "../models/EmailThrottle.js";
+import { sendNewMessageEmail } from "../services/email.service.js";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -120,7 +123,40 @@ export const sendMessage = async (req, res) => {
         link: `/inbox/conversation/${conversationId}`,
       });
     }
+    try {
+      if (recipientUserId) {
+        // Cargar usuario destinatario
+        const recipientUser = await User.findById(recipientUserId).select(
+          "name email isPremium notifications"
+        );
+        // (opcional) si en el futuro agregas preferencias: notifications.emailMessages === false => no enviar
+        const emailEnabled =
+          recipientUser?.notifications?.emailMessages !== false;
 
+        if (recipientUser?.isPremium && recipientUser?.email && emailEnabled) {
+          const windowMinutes = Number(process.env.EMAIL_THROTTLE_MINUTES || 5);
+          const canSend = await EmailThrottle.canSend(
+            recipientUser._id,
+            conversationId,
+            windowMinutes
+          );
+
+          if (canSend) {
+            await sendNewMessageEmail({
+              to: recipientUser.email,
+              recipientName: recipientUser.name,
+              senderName: message.sender?.name || "Alguien",
+              preview: text,
+              conversationId,
+            });
+            await EmailThrottle.markSent(recipientUser._id, conversationId);
+          }
+        }
+      }
+    } catch (e) {
+      // No rompas el flujo si el email falla
+      console.error("Error enviando email de nuevo mensaje:", e.message);
+    }
     res.status(201).json(message);
   } catch (error) {
     console.error("Error en sendMessage:", error);
