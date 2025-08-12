@@ -1,6 +1,6 @@
+// models/business.model.js
 import mongoose from "mongoose";
 
-// ⏰ Horario
 const horarioSchema = new mongoose.Schema({
   day: { type: String, required: true },
   closed: { type: Boolean, default: false },
@@ -10,7 +10,7 @@ const horarioSchema = new mongoose.Schema({
       return !this.closed;
     },
     validate: {
-      validator: function (value) {
+      validator(value) {
         if (this.closed) return true;
         return typeof value === "string" && /^\d{2}:\d{2}$/.test(value);
       },
@@ -23,7 +23,7 @@ const horarioSchema = new mongoose.Schema({
       return !this.closed;
     },
     validate: {
-      validator: function (value) {
+      validator(value) {
         if (this.closed) return true;
         return typeof value === "string" && /^\d{2}:\d{2}$/.test(value);
       },
@@ -32,44 +32,33 @@ const horarioSchema = new mongoose.Schema({
   },
 });
 
-// 🌐 Redes sociales
 const socialMediaSchema = new mongoose.Schema({
   facebook: String,
   instagram: String,
   whatsapp: String,
 });
 
-// 📞 Contacto
 const contactSchema = new mongoose.Schema({
   phone: String,
-  email: {
-    type: String,
-    match: /.+\@.+\..+/,
-  },
+  email: { type: String, match: /.+\@.+\..+/ },
   website: String,
   socialMedia: socialMediaSchema,
 });
 
-// 📍 Ubicación con coordenadas GeoJSON válidas
 const locationSchema = new mongoose.Schema({
-  address: { type: String, required: true },
-  city: { type: String, required: true },
-  state: { type: String, required: true },
+  address: { type: String }, // ⚠️ ya no required aquí; validamos en el controlador
+  city: { type: String },
+  state: { type: String },
   zipCode: { type: String, default: "" },
   country: { type: String, default: "USA" },
   coordinates: {
-    type: {
-      type: String,
-      enum: ["Point"],
-      required: true,
-      default: "Point",
-    },
+    type: { type: String, enum: ["Point"], default: "Point", required: true },
     coordinates: {
       type: [Number], // [lng, lat]
       required: true,
       validate: {
-        validator: function (value) {
-          return value.length === 2;
+        validator(value) {
+          return Array.isArray(value) && value.length === 2;
         },
         message: "Las coordenadas deben tener [lng, lat]",
       },
@@ -77,49 +66,49 @@ const locationSchema = new mongoose.Schema({
   },
 });
 
-// 🏪 Modelo principal de negocio
 const businessSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     description: { type: String, required: true },
 
     categories: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
-        required: true,
-      },
+      { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
     ],
-
     community: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Community",
       required: true,
     },
 
+    // NUEVO
+    isDeliveryOnly: { type: Boolean, default: false },
+    primaryZip: { type: String, default: "" }, // ZIP principal para el pin del mapa
+    serviceAreaZips: [{ type: String }], // opcional, solo informativo
+    locationPrecision: {
+      type: String,
+      enum: ["address", "zipcode"],
+      default: "address",
+    },
+
     contact: contactSchema,
-    location: locationSchema,
+    location: locationSchema, // si isDeliveryOnly === true, podemos guardar el centroid aquí
 
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-
     openingHours: [horarioSchema],
 
-    featuredImage: { type: String },
-    profileImage: { type: String },
-    images: [{ type: String }],
+    featuredImage: String,
+    profileImage: String,
+    images: [String],
 
     tags: [String],
     isVerified: { type: Boolean, default: false },
-
     likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-    isPremium: {
-      type: Boolean,
-      default: false,
-    },
+    isPremium: { type: Boolean, default: false },
+
     feedback: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -129,12 +118,9 @@ const businessSchema = new mongoose.Schema(
       },
     ],
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-// 🎯 Virtual de promociones relacionadas
 businessSchema.virtual("promotions", {
   ref: "Promotion",
   localField: "_id",
@@ -144,7 +130,6 @@ businessSchema.virtual("promotions", {
 businessSchema.set("toObject", { virtuals: true });
 businessSchema.set("toJSON", { virtuals: true });
 
-// ✅ Índice geoespacial correcto
 businessSchema.index({ "location.coordinates": "2dsphere" });
 
 export default mongoose.model("Business", businessSchema);

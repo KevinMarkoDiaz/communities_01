@@ -6,6 +6,7 @@ import { geocodeAddress } from "../utils/geocode.js";
 import businessView from "../models/businessView.model.js";
 import Follow from "../models/follow.model.js";
 import User from "../models/user.model.js";
+import { geocodeZipCentroid } from "../utils/geocodeZip.js";
 
 // Utils
 function buildGeoJSON({ lng, lat }) {
@@ -13,6 +14,44 @@ function buildGeoJSON({ lng, lat }) {
     type: "Point",
     coordinates: [lng, lat],
   };
+}
+const tryParseJSON = (s) => {
+  if (typeof s !== "string") return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+};
+
+// Normaliza casos como: ['["id1","id2"]','["id1","id2"]'] -> ['id1','id2','id1','id2']
+// También soporta: '["id1","id2"]' (string plano) -> ['id1','id2']
+function normalizeIdArrayField(field) {
+  let out = [];
+
+  if (Array.isArray(field)) {
+    for (const item of field) {
+      if (typeof item === "string") {
+        const parsed = tryParseJSON(item);
+        if (Array.isArray(parsed)) out.push(...parsed);
+        else if (/^[0-9a-fA-F]{24}$/.test(item)) out.push(item);
+      } else if (Array.isArray(item)) {
+        out.push(...item);
+      } else if (item && typeof item === "object" && item._id) {
+        out.push(String(item._id));
+      }
+    }
+  } else if (typeof field === "string") {
+    const parsed = tryParseJSON(field);
+    if (Array.isArray(parsed)) out = parsed;
+    else if (/^[0-9a-fA-F]{24}$/.test(field)) out = [field];
+  } else if (field && typeof field === "object" && field._id) {
+    out = [String(field._id)];
+  }
+
+  // Filtra a ids válidos y de‑duplica
+  const onlyIds = out.map(String).filter((x) => /^[0-9a-fA-F]{24}$/.test(x));
+  return Array.from(new Set(onlyIds));
 }
 
 const parseJSONField = (field, fallback = {}) => {
@@ -47,31 +86,58 @@ export const createBusiness = async (req, res) => {
       featuredImage = "",
       profileImage = "",
       images = [],
+      isDeliveryOnly = false,
+      primaryZip = "",
+      serviceAreaZips = [],
     } = req.body;
 
-    categories = parseJSONField(categories);
+    categories = normalizeIdArrayField(categories);
     location = parseJSONField(location);
     contact = parseJSONField(contact);
     openingHours = parseJSONField(openingHours);
     tags = parseJSONField(tags);
     images = parseJSONField(images);
-
-    if (!location?.address || !location?.city || !location?.state) {
-      return res
-        .status(400)
-        .json({ msg: "Dirección incompleta para geocodificación." });
-    }
+    serviceAreaZips = parseJSONField(serviceAreaZips, []);
 
     const communityDoc = await Community.findById(community);
-    if (!communityDoc) {
+    if (!communityDoc)
       return res.status(404).json({ msg: "Comunidad no encontrada." });
-    }
 
-    const fullAddress = `${location.address}, ${location.city}, ${
-      location.state
-    }, ${location.country || "USA"}`;
-    const coords = await geocodeAddress(fullAddress);
-    location.coordinates = buildGeoJSON(coords);
+    let locationPrecision = "address";
+
+    if (!isDeliveryOnly) {
+      // flujo normal con dirección exacta
+      if (!location?.address || !location?.city || !location?.state) {
+        return res
+          .status(400)
+          .json({ msg: "Dirección incompleta para geocodificación." });
+      }
+      const fullAddress = `${location.address}, ${location.city}, ${
+        location.state
+      }, ${location.country || "USA"}`;
+      const coords = await geocodeAddress(fullAddress);
+      location.coordinates = buildGeoJSON(coords);
+      locationPrecision = "address";
+      // Asegura zipCode si viene
+      if (!location.zipCode && primaryZip) location.zipCode = primaryZip;
+    } else {
+      // solo delivery: geocodificar centroid del ZIP
+      if (!primaryZip || !/^\d{5}$/.test(primaryZip)) {
+        return res.status(400).json({
+          msg: "Para negocios solo delivery, primaryZip (5 dígitos) es obligatorio.",
+        });
+      }
+      const coords = await geocodeZipCentroid(primaryZip, "US");
+      location = {
+        address: "",
+        city: "",
+        state: "",
+        zipCode: primaryZip,
+        country: "USA",
+        coordinates: buildGeoJSON(coords),
+      };
+      locationPrecision = "zipcode";
+    }
 
     const user = await User.findById(req.user.id);
 
@@ -80,6 +146,10 @@ export const createBusiness = async (req, res) => {
       description,
       categories,
       community,
+      isDeliveryOnly,
+      primaryZip,
+      serviceAreaZips,
+      locationPrecision,
       location,
       contact,
       openingHours,
@@ -89,12 +159,11 @@ export const createBusiness = async (req, res) => {
       featuredImage,
       profileImage,
       images,
-      isPremium: user.isPremium, // sincronizar estado premium
+      isPremium: user.isPremium,
     });
 
     await newBusiness.save();
 
-    // Si el usuario aún es "user", promoverlo a "business_owner"
     if (user.role === "user") {
       user.role = "business_owner";
       await user.save();
@@ -207,14 +276,18 @@ export const updateBusiness = async (req, res) => {
       featuredImage,
       profileImage,
       owner,
+      isDeliveryOnly,
+      primaryZip,
+      serviceAreaZips,
     } = req.body;
 
-    categories = parseJSONField(categories);
+    categories = normalizeIdArrayField(categories);
     location = parseJSONField(location);
     contact = parseJSONField(contact);
     openingHours = parseJSONField(openingHours);
     tags = parseJSONField(tags);
     images = parseJSONField(images);
+    serviceAreaZips = parseJSONField(serviceAreaZips);
 
     const business = await Business.findById(req.params.id);
     if (!business)
@@ -222,12 +295,10 @@ export const updateBusiness = async (req, res) => {
 
     const isOwner = business.owner.toString() === req.user.id;
     const isAdmin = req.user.role === "admin";
-
-    if (!isOwner && !isAdmin) {
+    if (!isOwner && !isAdmin)
       return res
         .status(403)
         .json({ msg: "No tienes permisos para actualizar este negocio." });
-    }
 
     if (owner && owner !== business.owner.toString()) {
       return res
@@ -235,13 +306,36 @@ export const updateBusiness = async (req, res) => {
         .json({ msg: "No puedes cambiar el propietario del negocio." });
     }
 
-    if (location?.address && location?.city && location?.state) {
+    let locationPrecision = business.locationPrecision;
+
+    // Determinar si cambiamos geolocalización
+    if (isDeliveryOnly === true || business.isDeliveryOnly === true) {
+      // delivery-only en la nueva versión o ya lo era
+      const newZip = primaryZip || business.primaryZip;
+      if (!newZip || !/^\d{5}$/.test(newZip)) {
+        return res.status(400).json({
+          msg: "Para negocios solo delivery, primaryZip (5 dígitos) es obligatorio.",
+        });
+      }
+      const coords = await geocodeZipCentroid(newZip, "US");
+      location = {
+        address: "",
+        city: "",
+        state: "",
+        zipCode: newZip,
+        country: "USA",
+        coordinates: buildGeoJSON(coords),
+      };
+      locationPrecision = "zipcode";
+    } else if (location?.address && location?.city && location?.state) {
+      // negocio con dirección exacta
       try {
         const fullAddress = `${location.address}, ${location.city}, ${
           location.state
         }, ${location.country || "USA"}`;
         const coords = await geocodeAddress(fullAddress);
         location.coordinates = buildGeoJSON(coords);
+        locationPrecision = "address";
       } catch (err) {
         console.error("❌ Error al geocodificar:", err);
         return res
@@ -267,7 +361,6 @@ export const updateBusiness = async (req, res) => {
       description,
       categories,
       community,
-      location,
       contact,
       openingHours,
       tags,
@@ -278,8 +371,18 @@ export const updateBusiness = async (req, res) => {
       images,
     });
 
+    // Actualiza flags/ZIP y ubicación
+    if (typeof isDeliveryOnly === "boolean")
+      business.isDeliveryOnly = isDeliveryOnly;
+    if (typeof primaryZip === "string") business.primaryZip = primaryZip;
+    if (Array.isArray(serviceAreaZips))
+      business.serviceAreaZips = serviceAreaZips;
+    if (location) business.location = location;
+    business.locationPrecision = locationPrecision;
+
     await business.save();
 
+    // Notifica a seguidores (igual que tu código)
     const followers = await Follow.find({
       entityType: "business",
       entityId: business._id,
@@ -294,7 +397,6 @@ export const updateBusiness = async (req, res) => {
         link: `/negocios/${business._id}`,
         read: false,
       }));
-
       await Notification.insertMany(notifications);
     }
 
@@ -302,10 +404,9 @@ export const updateBusiness = async (req, res) => {
       "categories  community owner"
     );
 
-    res.status(200).json({
-      msg: "Negocio actualizado exitosamente.",
-      business: populated,
-    });
+    res
+      .status(200)
+      .json({ msg: "Negocio actualizado exitosamente.", business: populated });
   } catch (error) {
     console.error("❌ Error en updateBusiness:", error);
     res.status(500).json({ msg: "Error al actualizar el negocio." });
@@ -441,8 +542,9 @@ export const getBusinessesByCommunity = async (req, res) => {
 
     const businesses = await Business.find(query)
       .select(
-        "_id name profileImage openingHours location.coordinates categories isPremium"
+        "_id name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
       )
+
       .populate({
         path: "categories",
         select: "name",
@@ -494,8 +596,9 @@ export const getBusinessesForMapByCommunity = async (req, res) => {
 
     const businesses = await Business.find(query)
       .select(
-        "_id name profileImage openingHours location.coordinates categories isPremium"
+        "_id name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
       )
+
       .populate({
         path: "categories",
         select: "name",
