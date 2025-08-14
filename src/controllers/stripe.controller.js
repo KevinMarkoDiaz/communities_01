@@ -233,90 +233,112 @@ export const stripeWebhookHandler = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  const data = event.data.object;
-
   try {
     switch (event.type) {
       case "checkout.session.completed": {
-        // Dos flujos posibles:
-        // 1) Suscripción Premium (mode: subscription o data.subscription presente)
-        // 2) Pago de banner (metadata.kind === "banner_payment" o metadata.bannerId presente)
-        const isSubscriptionFlow =
-          data.mode === "subscription" || !!data.subscription;
+        const session = event.data.object;
 
-        if (isSubscriptionFlow) {
-          // === PREMIUM ===
+        // Recupera la sesión "completa" y confirma que está paid
+        const full = await stripe.checkout.sessions.retrieve(session.id, {
+          expand: ["payment_intent", "line_items", "customer"],
+        });
+
+        const bannerId = full.metadata?.bannerId;
+        const paid = full.payment_status === "paid";
+
+        console.log("[webhook] checkout.session.completed", {
+          bannerId,
+          mode: full.mode,
+          payment_status: full.payment_status,
+        });
+
+        if (!bannerId || !paid) break;
+
+        const banner = await AdBanner.findById(bannerId);
+        if (!banner) break;
+
+        if (banner.status !== "active") {
+          const months = parseInt(full.metadata?.months || "1", 10) || 1;
+          const start = banner.startAt || new Date();
+          const end = new Date(start);
+          end.setMonth(end.getMonth() + months);
+
+          banner.startAt = start;
+          banner.endAt = end;
+          banner.status = "active";
+          banner.isActive = true;
+          await banner.save();
+
           try {
-            const userId = data.metadata?.userId;
-            if (userId) {
-              const user = await User.findById(userId);
-              if (user) {
-                user.isPremium = true;
-                user.subscriptionId = data.subscription;
-                await user.save();
-                await syncUserPremiumStatus(user._id, true);
-              }
+            const owner = await User.findById(banner.createdBy).select(
+              "email name fullName"
+            );
+            if (owner?.email) {
+              const dashboardUrl = buildUrl(
+                FRONTEND_URL,
+                "/dashboard/mis-banners",
+                { highlight: banner._id.toString() }
+              );
+              await sendAdPublishedUserEmail({
+                to: owner.email,
+                recipientName: owner.name || owner.fullName || "",
+                title: banner.title,
+                placement: banner.placement,
+                startAt: banner.startAt,
+                endAt: banner.endAt,
+                dashboardUrl,
+              });
             }
-          } catch (err) {
-            console.error("⚠️ Error actualizando usuario (premium):", err);
+          } catch (mailErr) {
+            console.error("✉️  Error email publicación:", mailErr.message);
           }
-        } else if (data.metadata?.bannerId) {
-          // === BANNER (pago único por 1 mes) ===
-          const bannerId = data.metadata.bannerId;
-          const months = parseInt(data.metadata?.months || "1", 10) || 1;
 
-          try {
-            const banner = await AdBanner.findById(bannerId);
-            if (banner) {
-              // activa y setea vigencia
-              const start = banner.startAt || new Date();
-              const end = addMonths(start, months);
-
-              banner.startAt = start;
-              banner.endAt = end;
-              banner.status = "active";
-              banner.isActive = true;
-              await banner.save();
-
-              // Email al dueño notificando publicación
-              try {
-                const owner = await User.findById(banner.createdBy).select(
-                  "email name fullName"
-                );
-                if (owner?.email) {
-                  const dashboardUrl = buildUrl(
-                    FRONTEND_URL,
-                    "/dashboard/mis-banners",
-                    { highlight: banner._id.toString() }
-                  );
-
-                  await sendAdPublishedUserEmail({
-                    to: owner.email,
-                    recipientName: owner.name || owner.fullName || "",
-                    title: banner.title,
-                    placement: banner.placement,
-                    startAt: banner.startAt,
-                    endAt: banner.endAt,
-                    dashboardUrl,
-                  });
-                }
-              } catch (mailErr) {
-                console.error(
-                  "✉️  Error enviando email de publicación:",
-                  mailErr.message
-                );
-              }
-            }
-          } catch (err) {
-            console.error("⚠️ Error activando banner:", err);
-          }
+          console.log("✅ Banner activado:", banner._id.toString());
         }
+        break;
+      }
 
+      case "payment_intent.succeeded": {
+        // Backup para métodos asíncronos
+        const intent = event.data.object;
+        console.log("[webhook] payment_intent.succeeded", {
+          intent: intent.id,
+          status: intent.status,
+        });
+
+        try {
+          const sessions = await stripe.checkout.sessions.list({
+            payment_intent: intent.id,
+            limit: 1,
+          });
+          const s = sessions.data?.[0];
+          const bannerId = s?.metadata?.bannerId;
+
+          if (!s || !bannerId || s.payment_status !== "paid") break;
+
+          const banner = await AdBanner.findById(bannerId);
+          if (!banner || banner.status === "active") break;
+
+          const months = parseInt(s.metadata?.months || "1", 10) || 1;
+          const start = banner.startAt || new Date();
+          const end = new Date(start);
+          end.setMonth(end.getMonth() + months);
+
+          banner.startAt = start;
+          banner.endAt = end;
+          banner.status = "active";
+          banner.isActive = true;
+          await banner.save();
+
+          console.log("✅ Banner activado (via PI):", banner._id.toString());
+        } catch (e) {
+          console.error("⚠️ No se pudo mapear intent->session:", e.message);
+        }
         break;
       }
 
       case "customer.subscription.deleted": {
-        // === PREMIUM cancelado ===
+        const data = event.data.object;
         try {
           const user = await User.findOne({ subscriptionId: data.id });
           if (user) {
@@ -336,9 +358,9 @@ export const stripeWebhookHandler = async (req, res) => {
         console.log(`🔔 Evento no manejado: ${event.type}`);
     }
 
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
   } catch (err) {
     console.error("❌ stripeWebhookHandler:", err);
-    res.status(500).json({ msg: "Error procesando webhook" });
+    return res.status(500).json({ msg: "Error procesando webhook" });
   }
 };
