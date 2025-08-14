@@ -34,6 +34,8 @@ import commentRoutes from "./routes/comments.routes.js";
 
 import userPromoRoutes from "./routes/userPromo.routes.js";
 
+import adBannerRoutes from "./routes/adBanner.routes.js";
+
 const app = express();
 
 // Logs
@@ -112,5 +114,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/comments", commentRoutes);
 
 app.use("/api/user-promos", userPromoRoutes);
+
+app.use("/api", adBannerRoutes);
 
 export default app;
