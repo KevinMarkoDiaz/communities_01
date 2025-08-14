@@ -8,6 +8,7 @@ import {
   sendAdSubmittedUserReceipt,
 } from "../services/adMailer.service.js";
 import User from "../models/user.model.js";
+import { getPriceCentsForPlacement } from "../config/adPricing.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
