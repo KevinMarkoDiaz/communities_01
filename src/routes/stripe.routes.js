@@ -1,22 +1,39 @@
-// routes/stripe.routes.js
+// src/routes/stripe.routes.js
 import express from "express";
 import { authMiddleware } from "../middlewares/validateToken.js";
 import {
+  // Premium mensual (ya existente)
   createCheckoutSession,
+  // Pago de banners (nuevo)
+  createBannerCheckoutSession,
+  // Webhook unificado (premium + banners)
   stripeWebhookHandler,
-} from "../controllers/stripe.controller.js";
+} from "../controllers/stripe.controller.js"; // <- ajusta el nombre si tu archivo se llama distinto
 
 const router = express.Router();
 
 /**
- * 🔐 Ruta protegida para crear una sesión de pago con Stripe
- * Esta ruta la llama el frontend cuando el usuario hace clic en "Suscribirse"
+ * 🔐 Checkout de SUSCRIPCIÓN PREMIUM (mode: subscription)
+ * body: {}
+ * Controller: createCheckoutSession
  */
 router.post("/create-checkout-session", authMiddleware, createCheckoutSession);
 
 /**
- * ⚠️ Webhook de Stripe para recibir eventos (NO debe tener express.json aplicado)
- * Usa express.raw para permitir a Stripe verificar la firma del payload
+ * 🔐 Checkout de BANNERS (pago único por 1 mes)
+ * body: { bannerId }
+ * Controller: createBannerCheckoutSession
+ */
+router.post(
+  "/create-banner-checkout-session",
+  authMiddleware,
+  createBannerCheckoutSession
+);
+
+/**
+ * ⚠️ Webhook de Stripe (UNICO)
+ * IMPORTANTE: esta ruta debe recibir el body en RAW para verificar la firma.
+ * Monta este router ANTES de app.use(express.json()) o excluye esta ruta del json parser global.
  */
 router.post(
   "/webhook",

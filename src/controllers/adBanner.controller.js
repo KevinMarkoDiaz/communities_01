@@ -1,7 +1,15 @@
 // src/controllers/ads.controller.js
-import AdBanner from "../models/adBanner.model.js";
 import mongoose from "mongoose";
 // import { v2 as cloudinary } from "cloudinary"; // ← si quieres borrar assets al eliminar/actualizar
+import Stripe from "stripe";
+import AdBanner, { AD_STATUS } from "../models/adBanner.model.js";
+import {
+  sendAdSubmittedAdminAlert,
+  sendAdSubmittedUserReceipt,
+} from "../services/adMailer.service.js";
+import User from "../models/user.model.js";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ─────────────────────────────────────────────────────────
 // Helpers
@@ -90,6 +98,28 @@ function serializeAd(b) {
   };
 }
 
+function ensureUrlWithScheme(u) {
+  if (!u) return null;
+  if (/^https?:\/\//i.test(u)) return u;
+  const isLocal = /^localhost(:\d+)?(\/|$)/i.test(u);
+  return `${isLocal ? "http" : "https"}://${u.replace(/^\/+/, "")}`;
+}
+
+function buildUrl(base, path = "/", params = {}) {
+  const origin = ensureUrlWithScheme(base) || "http://localhost:5173";
+  const url = new URL(path, origin);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "")
+      url.searchParams.set(k, String(v));
+  });
+  return url.toString();
+}
+
+function addMonths(date, months = 1) {
+  const d = new Date(date || Date.now());
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
 // ─────────────────────────────────────────────────────────
 // Crear banner
 // ─────────────────────────────────────────────────────────
@@ -111,8 +141,18 @@ export const createAdBanner = async (req, res) => {
     if (!defaultImageUrl) {
       return res.status(400).json({ msg: "Falta la imagen del banner" });
     }
+    const autoPrice = getPriceCentsForPlacement(data.placement);
 
     const banner = new AdBanner({
+      currency: (data.currency || "usd").toLowerCase(),
+      priceCents:
+        Number.isInteger(data.priceCents) && data.priceCents > 0
+          ? data.priceCents
+          : autoPrice,
+      status: "submitted",
+      isActive: false, // ⬅️ ahora arranca inactivo
+      isFallback: data.isFallback ?? false,
+      status: "submitted", // ⬅️ flujo nuevo
       // campos base
       title: data.title,
       placement: data.placement,
@@ -148,6 +188,22 @@ export const createAdBanner = async (req, res) => {
     });
 
     await banner.save();
+    try {
+      // Admin alert
+      await sendAdSubmittedAdminAlert({ banner, submitter: req.user });
+
+      // Confirmación al usuario
+      const submitter = await User.findById(banner.createdBy)
+        .select("email name")
+        .lean();
+      if (submitter?.email) {
+        await sendAdSubmittedUserReceipt({ banner, user: submitter });
+      }
+    } catch (e) {
+      console.error("⚠️ Email (submit) error:", e.message);
+    }
+    // 🔔 Notifica al usuario y al admin (placeholders)
+
     return res.status(201).json({ msg: "Banner creado", banner });
   } catch (err) {
     console.error("❌ createAdBanner:", err);
@@ -251,7 +307,17 @@ export const updateAdBanner = async (req, res) => {
       banner.imageTabletUrl = req.body.imageTabletUrl;
     if (req.body.imageMobileUrl)
       banner.imageMobileUrl = req.body.imageMobileUrl;
-
+    if ("placement" in data && !("priceCents" in data)) {
+      // si cambió el placement y NO enviaron priceCents manual, recalculamos
+      banner.priceCents = getPriceCentsForPlacement(banner.placement);
+    }
+    if ("priceCents" in data) {
+      const n = Number(data.priceCents);
+      banner.priceCents = Number.isInteger(n) && n > 0 ? n : banner.priceCents;
+    }
+    if ("currency" in data && typeof data.currency === "string") {
+      banner.currency = data.currency.toLowerCase();
+    }
     await banner.save();
     return res.json({ msg: "Banner actualizado", banner });
   } catch (err) {
@@ -306,9 +372,9 @@ export const getActiveBanners = async (req, res) => {
     if (!placement) {
       return res.status(400).json({ msg: "placement es requerido" });
     }
+    const filter = { ...baseActiveFilter(), placement, status: "active" }; // ⬅️ agregado
 
     // Base elegibilidad
-    const filter = { ...baseActiveFilter(), placement };
     // Aseguramos un $and para anexar reglas de segmentación
     if (!filter.$and) filter.$and = [];
 
@@ -415,5 +481,190 @@ export const trackAdEvent = async (req, res) => {
   } catch (err) {
     console.error("❌ trackAdEvent:", err);
     return res.status(500).json({ msg: "Error en tracking" });
+  }
+};
+
+// Puedes parametrizar días por env
+const DEFAULT_DAYS = Number(process.env.AD_BANNER_DEFAULT_DAYS || 30);
+
+// Pricing básico por placement (MVP). Ajusta a tu gusto.
+const PLACEMENT_BASE_PRICES = {
+  home_top: 14900, // $149.00
+  home_bottom: 7900,
+  sidebar_right_1: 6900,
+  sidebar_right_2: 5900,
+  listing_top: 9900,
+  listing_inline: 3900,
+  community_banner: 5900,
+  event_banner: 4900,
+  business_banner: 4900,
+  custom: 5000,
+};
+
+function computePriceCents(banner) {
+  const base = PLACEMENT_BASE_PRICES[banner.placement] ?? 5000;
+  const days = Math.max(
+    1,
+    Math.ceil(
+      ((banner.endAt || new Date(Date.now() + DEFAULT_DAYS * 86400000)) -
+        (banner.startAt || new Date())) /
+        86400000
+    )
+  );
+  // Simple: precio proporcional por días (redondeo)
+  return Math.round(base * (days / DEFAULT_DAYS));
+}
+
+// ─────────────────────────────────────────────────────────
+// Admin: poner en revisión (opcional) o aprobar
+// ─────────────────────────────────────────────────────────
+export const markUnderReview = async (req, res) => {
+  const { id } = req.params;
+  const banner = await AdBanner.findById(id);
+  if (!banner) return res.status(404).json({ msg: "No encontrado" });
+
+  banner.status = "under_review";
+  await banner.save();
+  return res.json({ msg: "Banner en revisión", banner });
+};
+
+export const approveAdBanner = async (req, res) => {
+  const { id } = req.params;
+  const banner = await AdBanner.findById(id);
+  if (!banner) return res.status(404).json({ msg: "No encontrado" });
+
+  banner.status = "approved";
+  banner.approvedBy = req.user?._id || req.user?.id;
+  banner.approvedAt = new Date();
+
+  // Si no trae fechas, define ventana por defecto al momento de publicar
+  // (las fijamos definitivamente cuando pague)
+  banner.priceCents = banner.priceCents || computePriceCents(banner);
+  await banner.save();
+  try {
+    const owner = await User.findById(banner.createdBy)
+      .select("email name")
+      .lean();
+    if (owner?.email) {
+      await sendAdApprovedUserEmail({ banner, user: owner });
+    }
+  } catch (e) {
+    console.error("⚠️ Email (approved) error:", e.message);
+  }
+  // 🔔 Notifica al dueño que ya puede pagar
+
+  return res.json({ msg: "Banner aprobado. Listo para pago.", banner });
+};
+
+export const rejectAdBanner = async (req, res) => {
+  const { id } = req.params;
+  const { reason = "" } = req.body || {};
+  const banner = await AdBanner.findById(id);
+  if (!banner) return res.status(404).json({ msg: "No encontrado" });
+
+  banner.status = "rejected";
+  banner.rejectedBy = req.user?._id || req.user?.id;
+  banner.rejectedReason = reason;
+  banner.isActive = false;
+  await banner.save();
+
+  return res.json({ msg: "Banner rechazado", banner });
+};
+
+// ─────────────────────────────────────────────────────────
+// Owner (o admin): crear sesión de pago Stripe
+// ─────────────────────────────────────────────────────────
+// src/controllers/adBanner.controller.js
+export const createAdCheckout = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const banner = await AdBanner.findById(id);
+    if (!banner) return res.status(404).json({ msg: "Banner no encontrado" });
+
+    const isOwner =
+      banner.createdBy?.toString?.() ===
+      (req.user?.id || req.user?._id?.toString());
+    const isAdmin = req.user?.role === "admin";
+    if (!isOwner && !isAdmin)
+      return res.status(403).json({ msg: "Sin permisos" });
+
+    if (!["approved", "awaiting_payment"].includes(banner.status)) {
+      return res
+        .status(400)
+        .json({ msg: "El banner no está aprobado para pago" });
+    }
+
+    const amount = Number(banner.priceCents || 0);
+    const currency = (banner.currency || "usd").toLowerCase();
+    if (!Number.isInteger(amount) || amount <= 0) {
+      return res.status(400).json({ msg: "Monto inválido para checkout" });
+    }
+
+    const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+    const success_url = buildUrl(FRONTEND_URL, "/dashboard/mis-banners", {
+      checkout: "success",
+      bannerId: banner._id.toString(),
+    });
+    const cancel_url = buildUrl(FRONTEND_URL, "/dashboard/mis-banners", {
+      checkout: "cancel",
+      bannerId: banner._id.toString(),
+    });
+
+    const img =
+      banner.imageUrl ||
+      banner.imageDesktopUrl ||
+      banner.imageTabletUrl ||
+      banner.imageMobileUrl ||
+      undefined;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      success_url,
+      cancel_url,
+      client_reference_id: banner._id.toString(),
+      metadata: {
+        bannerId: banner._id.toString(),
+        placement: banner.placement || "",
+        months: "1",
+      },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency,
+            unit_amount: amount,
+            product_data: {
+              name: `Banner ${banner.placement} – 1 mes`,
+              description: banner.title || "Publicidad",
+              ...(img ? { images: [img] } : {}),
+            },
+          },
+        },
+      ],
+    });
+
+    if (banner.status !== "awaiting_payment") {
+      banner.status = "awaiting_payment";
+      await banner.save();
+    }
+
+    return res.json({ url: session.url, sessionId: session.id });
+  } catch (err) {
+    console.error("❌ createAdCheckout:", err);
+    return res
+      .status(400)
+      .json({ msg: err.message || "Error creando checkout" });
+  }
+};
+
+export const myAdBanners = async (req, res) => {
+  try {
+    const banners = await AdBanner.find({ createdBy: req.user._id }).sort({
+      createdAt: -1,
+    });
+    return res.json({ banners });
+  } catch (err) {
+    console.error("❌ myAdBanners:", err);
+    return res.status(500).json({ msg: "Error listando mis banners" });
   }
 };
