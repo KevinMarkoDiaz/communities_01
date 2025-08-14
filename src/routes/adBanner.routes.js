@@ -1,7 +1,8 @@
+// src/routes/adBanner.routes.js
 import { Router } from "express";
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
-import { validateBody } from "../middlewares/validator.middleware.js";
+import nocache from "../middlewares/nocache.js";
 
 import {
   createAdBanner,
@@ -11,30 +12,38 @@ import {
   deleteAdBanner,
   getActiveBanners,
   trackAdEvent,
+  markUnderReview,
+  approveAdBanner,
+  rejectAdBanner,
+  createAdCheckout,
+  myAdBanners, // ⬅️ NUEVO
 } from "../controllers/adBanner.controller.js";
 
 import {
   uploadAdImages,
   processAdImages,
 } from "../middlewares/adUpload.middleware.js";
-import nocache from "../middlewares/nocache.js";
 
 const router = Router();
 
-/**
- * Admin/BO: crear banner (multipart)
- * body: data (JSON string con los campos) + bannerImage (file)
- */
+/** PUBLIC/FRONT */
+router.get("/ads/active", nocache, getActiveBanners);
+/** Tracking público (impresiones/clicks) */
+router.post("/ads/banners/:id/track", nocache, trackAdEvent);
+
+/** USER: listado de mis banners */
+router.get("/ads/my-banners", authMiddleware, myAdBanners);
+
+/** USER: enviar solicitud (multipart) */
 router.post(
-  "/ads/banners",
+  "/ads/banners/submit",
   authMiddleware,
-  hasRole("admin"),
   uploadAdImages,
   processAdImages,
   createAdBanner
 );
 
-// Listado y consulta
+/** ADMIN: gestión */
 router.get("/ads/banners", authMiddleware, hasRole("admin"), listAdBanners);
 router.get(
   "/ads/banners/:id",
@@ -42,8 +51,6 @@ router.get(
   hasRole("admin"),
   getAdBannerById
 );
-
-// Actualizar (imagen opcional)
 router.put(
   "/ads/banners/:id",
   authMiddleware,
@@ -52,8 +59,6 @@ router.put(
   processAdImages,
   updateAdBanner
 );
-
-// Eliminar
 router.delete(
   "/ads/banners/:id",
   authMiddleware,
@@ -61,16 +66,27 @@ router.delete(
   deleteAdBanner
 );
 
-/**
- * Público: obtener banners activos por placement/segmentación
- * GET /ads/active?placement=home_top&communityId=...&limit=1&strategy=weighted
- */
-router.get("/ads/active", nocache, getActiveBanners);
+/** ADMIN: flujo de revisión */
+router.post(
+  "/ads/banners/:id/under-review",
+  authMiddleware,
+  hasRole("admin"),
+  markUnderReview
+);
+router.post(
+  "/ads/banners/:id/approve",
+  authMiddleware,
+  hasRole("admin"),
+  approveAdBanner
+);
+router.post(
+  "/ads/banners/:id/reject",
+  authMiddleware,
+  hasRole("admin"),
+  rejectAdBanner
+);
 
-/**
- * Tracking (público): el front llama cuando renderiza o clickea
- * POST /ads/banners/:id/track?type=impression  |  click
- */
-router.post("/ads/banners/:id/track", nocache, trackAdEvent);
+/** OWNER o ADMIN: crear checkout para pagar */
+// router.post("/ads/banners/:id/checkout", authMiddleware, createAdCheckout);
 
 export default router;

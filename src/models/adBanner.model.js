@@ -13,7 +13,15 @@ export const PLACEMENTS = [
   "business_banner",
   "custom",
 ];
-
+export const AD_STATUS = [
+  "submitted", // enviado por el usuario
+  "under_review", // admin lo está revisando
+  "approved", // aprobado -> habilita pagar
+  "awaiting_payment", // checkout creado, esperando pago
+  "active", // pagado y publicado
+  "rejected", // rechazado por admin
+  "archived", // histórico
+];
 const AdBannerSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
@@ -53,6 +61,25 @@ const AdBannerSchema = new mongoose.Schema(
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     createdByName: String,
     createdByRole: String,
+    currency: { type: String, default: "usd" }, // 'usd'
+    priceCents: { type: Number, default: null }, // 5000, 3000, etc (centavos)
+    status: {
+      type: String,
+      enum: AD_STATUS,
+      default: "submitted",
+      index: true,
+    },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    approvedAt: Date,
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    rejectedReason: String,
+    publishedAt: Date,
+
+    // --- Precio / Stripe ---
+    priceCents: { type: Number, default: 0 }, // calculado por placement/días
+    currency: { type: String, default: "usd" },
+    stripeCheckoutSessionId: String,
+    stripePaymentIntentId: String,
   },
   {
     timestamps: true,
@@ -60,7 +87,7 @@ const AdBannerSchema = new mongoose.Schema(
     toObject: { virtuals: true },
   }
 );
-
+AdBannerSchema.index({ placement: 1, status: 1, isActive: 1 });
 // Virtual para devolver todas las variantes en una sola llave
 AdBannerSchema.virtual("sources").get(function () {
   return {
