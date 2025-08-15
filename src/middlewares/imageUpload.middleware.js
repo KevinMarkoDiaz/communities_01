@@ -120,47 +120,26 @@ export const imageProcessor = async (req, res, next) => {
   try {
     const files = req.files;
 
-    // Imagen destacada
+    // FEATURED
     if (files?.featuredImage?.[0]) {
-      try {
-        const inputPath = files.featuredImage[0].path;
-        const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
-        await resizeImage(inputPath, resizedPath);
+      const inputPath = files.featuredImage[0].path;
+      const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
+      await resizeImage(inputPath, resizedPath);
 
-        const result = await cloudinary.uploader.upload(resizedPath, {
-          folder: "negocios",
-        });
-        req.body.featuredImage = result.secure_url;
+      const result = await cloudinary.uploader.upload(resizedPath, {
+        folder: "negocios", // o "eventos" si prefieres
+      });
 
-        await deleteTempFile(inputPath);
-        await deleteTempFile(resizedPath);
-      } catch (err) {
-        console.error("❌ Falló subida de imagen destacada:", err);
-        return res.status(500).json({ msg: "Error al subir imagen destacada" });
-      }
+      // 🔥 si hay archivo, SIEMPRE sobreescribe con la URL subida
+      req.body.featuredImage = result.secure_url;
+
+      await deleteTempFile(inputPath);
+      await deleteTempFile(resizedPath);
     }
+    // si NO hay featuredImage file, NO toques req.body.featuredImage aquí:
+    // quedará la URL que vino desde parseDataField (si la había)
 
-    // Imagen de perfil
-    if (files?.profileImage?.[0]) {
-      try {
-        const inputPath = files.profileImage[0].path;
-        const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
-        await resizeImage(inputPath, resizedPath);
-
-        const result = await cloudinary.uploader.upload(resizedPath, {
-          folder: "perfiles",
-        });
-        req.body.profileImage = result.secure_url;
-
-        await deleteTempFile(inputPath);
-        await deleteTempFile(resizedPath);
-      } catch (err) {
-        console.error("❌ Falló subida de imagen de perfil:", err);
-        return res.status(500).json({ msg: "Error al subir imagen de perfil" });
-      }
-    }
-
-    // Galería
+    // GALERÍA
     if (files?.images?.length > 0) {
       const uploads = await Promise.all(
         files.images.map(async (file) => {
@@ -178,13 +157,20 @@ export const imageProcessor = async (req, res, next) => {
             return result.secure_url;
           } catch (err) {
             console.error("❌ Error subiendo imagen de galería:", err);
-            // En caso de error con una imagen, devolvemos null y filtramos luego
             return null;
           }
         })
       );
-      req.body.images = uploads.filter(Boolean);
+
+      const prev = Array.isArray(req.body.images) ? req.body.images : [];
+      req.body.images = [...prev, ...uploads.filter(Boolean)]; // ← fusiona
     }
+
+    // debug útil
+    console.log(
+      "🧪 imageProcessor.body.featuredImage:",
+      req.body.featuredImage
+    );
 
     next();
   } catch (error) {

@@ -1,33 +1,35 @@
-import express from 'express';
+import { Router } from "express";
 import {
   getAllUsers,
   getUserById,
   updateUser,
   deleteUser,
-  buscarUsuariosPorNombre
-} from '../controllers/user.controller.js';
+  buscarUsuariosPorNombre,
+} from "../controllers/user.controller.js";
 
-import { registerUser } from '../controllers/auth.controller.js';
-import { authMiddleware } from '../middlewares/validateToken.js';
-import { isAdmin } from '../middlewares/isAdmin.js';
-import { validateBody } from '../middlewares/validateBody.js';
-import { userSchema } from '../schemas/user.schema.js';
-import { userUpdateSchema } from '../schemas/user-update.schema.js';
+import { registerUser } from "../controllers/auth.controller.js";
+import { authMiddleware } from "../middlewares/validateToken.js";
+import { isAdmin } from "../middlewares/isAdmin.js";
+import { validateBody } from "../middlewares/validateBody.js";
+import { userSchema } from "../schemas/user.schema.js";
+import { userUpdateSchema } from "../schemas/user-update.schema.js";
+
 import {
   singleProfileImageUpload,
-  handleProfileImage
-} from '../middlewares/imageUpload.middleware.js';
+  handleProfileImage,
+} from "../middlewares/imageUpload.middleware.js";
 
-const router = express.Router();
+import { parseDataField } from "../middlewares/parseDataField.js";
+
+const router = Router();
 
 /**
  * Rutas bajo /api/users
- * Requieren autenticación, salvo que se especifique lo contrario
  */
 
 // 📌 Crear nuevo usuario (solo admin)
 router.post(
-  '/',
+  "/",
   authMiddleware,
   isAdmin,
   validateBody(userSchema),
@@ -35,25 +37,26 @@ router.post(
 );
 
 // 📥 Obtener todos los usuarios (solo admin)
-router.get('/', authMiddleware, isAdmin, getAllUsers);
+router.get("/", authMiddleware, isAdmin, getAllUsers);
 
 // 🔍 Buscar usuarios por nombre (admin)
-router.get('/search', authMiddleware, isAdmin, buscarUsuariosPorNombre);
+router.get("/search", authMiddleware, isAdmin, buscarUsuariosPorNombre);
 
 // 🔍 Obtener un usuario por ID
-router.get('/:id', authMiddleware, getUserById);
+router.get("/:id", authMiddleware, getUserById);
 
-// ✏️ Actualizar usuario (solo el mismo o admin)
+// ✏️ Actualizar usuario (orden correcto multipart)
 router.put(
-  '/:id',
+  "/:id",
   authMiddleware,
-  singleProfileImageUpload,
-  handleProfileImage,
-  validateBody(userUpdateSchema),
-  updateUser
+  singleProfileImageUpload, // 1) multer
+  parseDataField, // 2) fusiona req.body.data si vino
+  handleProfileImage, // 3) sube imagen y setea URL en req.body.profileImage
+  validateBody(userUpdateSchema), // 4) valida inputs del cliente
+  updateUser // 5) controlador
 );
 
 // 🗑️ Eliminar usuario (solo admin)
-router.delete('/:id', authMiddleware, isAdmin, deleteUser);
+router.delete("/:id", authMiddleware, isAdmin, deleteUser);
 
 export default router;

@@ -669,3 +669,98 @@ export const myAdBanners = async (req, res) => {
     return res.status(500).json({ msg: "Error listando mis banners" });
   }
 };
+/**
+ * GET /api/ads/my-banners
+ * Devuelve SOLO los banners del usuario autenticado (aunque sea admin).
+ */
+export const listMyAdBanners = async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) return res.status(401).json({ msg: "No autenticado" });
+
+    const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit || "20", 10), 1),
+      50
+    );
+    const skip = (page - 1) * limit;
+
+    // 🔒 Forzamos filtro por propietario SIEMPRE, sin importar si es admin
+    const filter = {
+      createdBy: userId,
+      archived: { $ne: true },
+    };
+
+    const [banners, total] = await Promise.all([
+      AdBanner.find(filter)
+        .select(
+          "_id title placement status imageUrl impressions clicks startAt endAt createdAt updatedAt priceCents currency"
+        )
+        .sort({ updatedAt: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AdBanner.countDocuments(filter),
+    ]);
+
+    return res.json({
+      banners,
+      page,
+      pages: Math.ceil(total / limit),
+      total,
+    });
+  } catch (err) {
+    console.error("❌ listMyAdBanners:", err);
+    return res.status(500).json({ msg: "Error listando banners" });
+  }
+};
+
+/**
+ * GET /api/admin/ads/banners
+ * Listado global (moderación). SOLO admins. Con filtros opcionales.
+ */
+export const adminListAdBanners = async (req, res) => {
+  try {
+    // Este endpoint debe estar protegido por un middleware adminOnly.
+    const isAdmin = req.user?.role === "admin";
+    if (!isAdmin) return res.status(403).json({ msg: "Solo admins" });
+
+    const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit || "20", 10), 1),
+      100
+    );
+    const skip = (page - 1) * limit;
+
+    // Filtros opcionales: status, createdBy, placement
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.createdBy) filter.createdBy = req.query.createdBy;
+    if (req.query.placement) filter.placement = req.query.placement;
+    if (req.query.q) {
+      filter.title = { $regex: req.query.q, $options: "i" };
+    }
+
+    const [banners, total] = await Promise.all([
+      AdBanner.find(filter)
+        .select(
+          "_id title placement status imageUrl impressions clicks startAt endAt createdAt updatedAt priceCents currency createdBy"
+        )
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AdBanner.countDocuments(filter),
+    ]);
+
+    return res.json({
+      banners,
+      page,
+      pages: Math.ceil(total / limit),
+      total,
+    });
+  } catch (err) {
+    console.error("❌ adminListAdBanners:", err);
+    return res.status(500).json({ msg: "Error listando banners (admin)" });
+  }
+};

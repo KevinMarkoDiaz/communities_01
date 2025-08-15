@@ -1,4 +1,4 @@
-// src/controllers/stripeController.js
+// src/controllers/stripe.controller.js
 import Stripe from "stripe";
 import dotenv from "dotenv";
 import User from "../models/user.model.js";
@@ -10,13 +10,16 @@ import { getPriceCentsForPlacement } from "../config/adPricing.js";
 import { getPriceIdForPlacement } from "../config/stripePrices.js";
 import { sendAdPublishedUserEmail } from "../services/adMailer.service.js";
 
-dotenv.config();
+// Carga .env y permite override (útil en Windows si hay vars del sistema)
+dotenv.config({ override: true });
 
 const {
   STRIPE_SECRET_KEY,
   STRIPE_PREMIUM_PRICE_ID,
   STRIPE_WEBHOOK_SECRET,
   FRONTEND_URL,
+  NODE_ENV,
+  DEBUG_STRIPE,
 } = process.env;
 
 if (
@@ -28,9 +31,23 @@ if (
   throw new Error("🚨 Falta configurar variables de entorno para Stripe");
 }
 
-const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16",
-});
+// Inicializa Stripe con versión fija
+const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" });
+
+// Diagnóstico al arrancar (cuenta y prefijo de la key)
+(async () => {
+  try {
+    const acct = await stripe.accounts.retrieve();
+    console.log(
+      `[Stripe] acct: ${acct.id} | key: ${STRIPE_SECRET_KEY.slice(
+        0,
+        7
+      )} | env: ${NODE_ENV || "dev"}`
+    );
+  } catch (e) {
+    console.warn("[Stripe] No se pudo leer la cuenta:", e.message);
+  }
+})();
 
 /* =========================
    Helpers (URLs y fechas)
@@ -53,14 +70,44 @@ function buildUrl(base, path = "/", params = {}) {
   return url.toString();
 }
 
-function addMonths(date, months = 1) {
-  const d = new Date(date || Date.now());
-  d.setMonth(d.getMonth() + months);
-  return d;
+async function activateBannerAndNotify(banner, months = 1) {
+  const start = banner.startAt || new Date();
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + months);
+
+  banner.startAt = start;
+  banner.endAt = end;
+  banner.status = "active";
+  banner.isActive = true;
+  await banner.save();
+
+  try {
+    const owner = await User.findById(banner.createdBy).select(
+      "email name fullName"
+    );
+    if (owner?.email) {
+      const dashboardUrl = buildUrl(FRONTEND_URL, "/dashboard/mis-banners", {
+        highlight: banner._id.toString(),
+      });
+      await sendAdPublishedUserEmail({
+        to: owner.email,
+        recipientName: owner.name || owner.fullName || "",
+        title: banner.title,
+        placement: banner.placement,
+        startAt: banner.startAt,
+        endAt: banner.endAt,
+        dashboardUrl,
+      });
+    }
+  } catch (mailErr) {
+    console.error("✉️  Error email publicación:", mailErr.message);
+  }
+
+  console.log("✅ Banner activado:", banner._id.toString());
 }
 
 /* ======================================================
-   EXISTENTE: Crear sesión de Checkout para PREMIUM (SUB)
+   Crear sesión de Checkout para PREMIUM (SUBSCRIPCIÓN)
    ====================================================== */
 export const createCheckoutSession = async (req, res) => {
   try {
@@ -76,40 +123,30 @@ export const createCheckoutSession = async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "subscription",
-      line_items: [
-        {
-          price: STRIPE_PREMIUM_PRICE_ID, // <- price_id de Stripe para tu plan premium
-          quantity: 1,
-        },
-      ],
+      line_items: [{ price: STRIPE_PREMIUM_PRICE_ID, quantity: 1 }],
       customer_email: user.email,
-      metadata: {
-        userId: user._id.toString(),
-      },
+      metadata: { userId: user._id.toString() },
       success_url: `${cleanFrontendUrl}/suscripcion-exitosa`,
       cancel_url: `${cleanFrontendUrl}/suscripcion-cancelada`,
     });
 
-    res.status(200).json({ url: session.url });
+    res.status(200).json({ url: session.url, sessionId: session.id });
   } catch (error) {
-    console.error("❌ Error creando sesión Stripe:", error);
+    console.error("❌ Error creando sesión Stripe (premium):", error);
     res.status(500).json({ message: "Error al iniciar sesión de pago" });
   }
 };
 
 /* =====================================================
-   NUEVO: Checkout para BANNERS (pago único de 1 mes)
+   Checkout para BANNERS (pago único de 1 mes)
    ===================================================== */
 export const createBannerCheckoutSession = async (req, res) => {
   try {
     const user = req.user;
     const { bannerId } = req.body || {};
-    if (!user || !user._id) {
+    if (!user || !user._id)
       return res.status(400).json({ msg: "Usuario inválido" });
-    }
-    if (!bannerId) {
-      return res.status(400).json({ msg: "bannerId requerido" });
-    }
+    if (!bannerId) return res.status(400).json({ msg: "bannerId requerido" });
 
     const banner = await AdBanner.findById(bannerId);
     if (!banner) return res.status(404).json({ msg: "Banner no encontrado" });
@@ -118,9 +155,8 @@ export const createBannerCheckoutSession = async (req, res) => {
     const isOwner =
       banner.createdBy?.toString?.() === (user?.id || user?._id?.toString());
     const isAdmin = user?.role === "admin";
-    if (!isOwner && !isAdmin) {
+    if (!isOwner && !isAdmin)
       return res.status(403).json({ msg: "Sin permisos" });
-    }
 
     // Debe estar aprobado para pagar
     if (!["approved", "awaiting_payment"].includes(banner.status)) {
@@ -129,7 +165,7 @@ export const createBannerCheckoutSession = async (req, res) => {
         .json({ msg: "El banner no está aprobado para pago" });
     }
 
-    // Precio (en centavos) para fallback y para mostrar
+    // Precio (en centavos)
     const amount =
       Number.isInteger(banner.priceCents) && banner.priceCents > 0
         ? banner.priceCents
@@ -139,10 +175,8 @@ export const createBannerCheckoutSession = async (req, res) => {
       return res.status(400).json({ msg: "Monto inválido para checkout" });
     }
 
-    // Intentamos usar price_id por placement (Opción B)
     const priceId = getPriceIdForPlacement(banner.placement);
 
-    // URLs absolutas (con esquema) para volver al dashboard
     const success_url = buildUrl(FRONTEND_URL, "/dashboard/mis-banners", {
       checkout: "success",
       bannerId: banner._id.toString(),
@@ -164,24 +198,19 @@ export const createBannerCheckoutSession = async (req, res) => {
       mode: "payment",
       success_url,
       cancel_url,
+      // 👇 Fallback si metadata no llega: lo leeremos en el webhook
       client_reference_id: banner._id.toString(),
       metadata: {
         kind: "banner_payment",
         bannerId: banner._id.toString(),
         placement: banner.placement || "",
-        months: "1", // vigencia 1 mes
+        months: "1",
       },
     };
 
     const line_items = priceId
-      ? [
-          {
-            quantity: 1,
-            price: priceId, // ✅ reutiliza price_id pre-creado
-          },
-        ]
+      ? [{ quantity: 1, price: priceId }]
       : [
-          // Fallback seguro: crea el precio "al vuelo"
           {
             quantity: 1,
             price_data: {
@@ -219,10 +248,16 @@ export const createBannerCheckoutSession = async (req, res) => {
    WEBHOOK: maneja Premium y pagos de Banners
    ============================================ */
 export const stripeWebhookHandler = async (req, res) => {
+  const dlog = (...args) =>
+    DEBUG_STRIPE === "1" && console.log("[STRIPE]", ...args);
+  const IS_PROD = NODE_ENV === "production";
+  const ACK = () => res.status(200).json({ received: true });
+
   const sig = req.headers["stripe-signature"];
   let event;
 
   try {
+    // ⚠️ Esta ruta DEBE usar express.raw({ type: 'application/json' })
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
@@ -233,77 +268,106 @@ export const stripeWebhookHandler = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  dlog("→ EVENT", { id: event.id, type: event.type, livemode: event.livemode });
+  const data = event.data.object;
+  dlog("→ DATA SNAPSHOT", {
+    mode: data?.mode,
+    payment_status: data?.payment_status,
+    status: data?.status,
+    metadata: data?.metadata,
+    client_reference_id: data?.client_reference_id,
+    object: data?.object,
+  });
+
   try {
     switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object;
+      // Considera ambos eventos de checkout exitoso
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded": {
+        const session = event.data.object; // 'checkout.session'
+        const paid =
+          session.payment_status === "paid" || session.status === "complete";
+        const mode = session.mode; // 'payment' | 'subscription'
+        // ✅ elegir bannerId desde metadata o client_reference_id (fallback)
+        const bannerId =
+          session.metadata?.bannerId || session.client_reference_id || null;
+        const months = parseInt(session.metadata?.months || "1", 10) || 1;
 
-        // Recupera la sesión "completa" y confirma que está paid
-        const full = await stripe.checkout.sessions.retrieve(session.id, {
-          expand: ["payment_intent", "line_items", "customer"],
+        console.log("[webhook] checkout.session.*", {
+          id: session.id,
+          livemode: event.livemode,
+          mode,
+          payment_status: session.payment_status,
+          hasMetadataBanner: !!session.metadata?.bannerId,
+          client_reference_id: session.client_reference_id || null,
+          pickedBannerId: bannerId || null,
         });
 
-        const bannerId = full.metadata?.bannerId;
-        const paid = full.payment_status === "paid";
+        if (!paid) return ACK();
 
-        console.log("[webhook] checkout.session.completed", {
-          bannerId,
-          mode: full.mode,
-          payment_status: full.payment_status,
-        });
-
-        if (!bannerId || !paid) break;
-
-        const banner = await AdBanner.findById(bannerId);
-        if (!banner) break;
-
-        if (banner.status !== "active") {
-          const months = parseInt(full.metadata?.months || "1", 10) || 1;
-          const start = banner.startAt || new Date();
-          const end = new Date(start);
-          end.setMonth(end.getMonth() + months);
-
-          banner.startAt = start;
-          banner.endAt = end;
-          banner.status = "active";
-          banner.isActive = true;
-          await banner.save();
-
+        // 🔸 Activar PREMIUM (suscripciones)
+        if (mode === "subscription") {
           try {
-            const owner = await User.findById(banner.createdBy).select(
-              "email name fullName"
-            );
-            if (owner?.email) {
-              const dashboardUrl = buildUrl(
-                FRONTEND_URL,
-                "/dashboard/mis-banners",
-                { highlight: banner._id.toString() }
+            const userId = session.metadata?.userId;
+            const subscriptionId = session.subscription; // viene en la session
+            if (userId && subscriptionId) {
+              const user = await User.findById(userId);
+              if (user) {
+                user.isPremium = true;
+                user.subscriptionId = subscriptionId;
+                await user.save();
+                await syncUserPremiumStatus(user._id, true);
+                console.log(`✅ Premium activado: ${user.email}`);
+              }
+            } else {
+              console.log(
+                "ℹ️ Suscripción sin userId/subscriptionId (posible checkout fuera de tu endpoint)."
               );
-              await sendAdPublishedUserEmail({
-                to: owner.email,
-                recipientName: owner.name || owner.fullName || "",
-                title: banner.title,
-                placement: banner.placement,
-                startAt: banner.startAt,
-                endAt: banner.endAt,
-                dashboardUrl,
-              });
             }
-          } catch (mailErr) {
-            console.error("✉️  Error email publicación:", mailErr.message);
+          } catch (e) {
+            console.error("⚠️ Error activando premium:", e.message);
+            if (IS_PROD)
+              return res.status(500).json({ msg: "Error activando premium" });
+          }
+        }
+
+        // 🔸 Activar BANNER (pago único)
+        if (mode === "payment") {
+          if (!bannerId) {
+            console.log(
+              "ℹ️ Pago sin bannerId (ni metadata ni client_reference_id). No se puede activar automáticamente."
+            );
+            return ACK();
           }
 
-          console.log("✅ Banner activado:", banner._id.toString());
+          try {
+            const banner = await AdBanner.findById(bannerId);
+            if (!banner) {
+              console.log("⚠️ Banner no encontrado:", bannerId);
+              return ACK();
+            }
+            if (banner.status !== "active") {
+              await activateBannerAndNotify(banner, months);
+            } else {
+              console.log("ℹ️ Banner ya estaba activo:", banner._id.toString());
+            }
+          } catch (e) {
+            console.error("⚠️ Error activando banner:", e.message);
+            if (IS_PROD)
+              return res.status(500).json({ msg: "Error activando banner" });
+          }
         }
-        break;
+
+        return ACK();
       }
 
       case "payment_intent.succeeded": {
-        // Backup para métodos asíncronos
+        // Backup para métodos asíncronos: mapear intent -> session
         const intent = event.data.object;
         console.log("[webhook] payment_intent.succeeded", {
           intent: intent.id,
           status: intent.status,
+          livemode: event.livemode,
         });
 
         try {
@@ -312,35 +376,31 @@ export const stripeWebhookHandler = async (req, res) => {
             limit: 1,
           });
           const s = sessions.data?.[0];
-          const bannerId = s?.metadata?.bannerId;
+          const md = s?.metadata || {};
+          const bannerId = md.bannerId || s?.client_reference_id || null;
 
-          if (!s || !bannerId || s.payment_status !== "paid") break;
+          if (!s || s.payment_status !== "paid" || !bannerId) return ACK();
 
           const banner = await AdBanner.findById(bannerId);
-          if (!banner || banner.status === "active") break;
+          if (!banner || banner.status === "active") return ACK();
 
-          const months = parseInt(s.metadata?.months || "1", 10) || 1;
-          const start = banner.startAt || new Date();
-          const end = new Date(start);
-          end.setMonth(end.getMonth() + months);
+          const months = parseInt(md.months || "1", 10) || 1;
+          await activateBannerAndNotify(banner, months);
 
-          banner.startAt = start;
-          banner.endAt = end;
-          banner.status = "active";
-          banner.isActive = true;
-          await banner.save();
-
-          console.log("✅ Banner activado (via PI):", banner._id.toString());
+          return ACK();
         } catch (e) {
           console.error("⚠️ No se pudo mapear intent->session:", e.message);
+          // En dev, no fuerces reintento
+          return IS_PROD
+            ? res.status(500).json({ msg: "Error mapeando intent" })
+            : ACK();
         }
-        break;
       }
 
       case "customer.subscription.deleted": {
-        const data = event.data.object;
+        const sub = event.data.object;
         try {
-          const user = await User.findOne({ subscriptionId: data.id });
+          const user = await User.findOne({ subscriptionId: sub.id });
           if (user) {
             user.isPremium = false;
             user.subscriptionId = null;
@@ -350,17 +410,20 @@ export const stripeWebhookHandler = async (req, res) => {
           }
         } catch (err) {
           console.error("⚠️ Error al manejar subscription.deleted:", err);
+          if (IS_PROD)
+            return res.status(500).json({ msg: "Error en baja de premium" });
         }
-        break;
+        return ACK();
       }
 
       default:
         console.log(`🔔 Evento no manejado: ${event.type}`);
+        return ACK();
     }
-
-    return res.status(200).json({ received: true });
   } catch (err) {
     console.error("❌ stripeWebhookHandler:", err);
+    // En dev, nunca 500 por errores esperables
+    if (!IS_PROD) return ACK();
     return res.status(500).json({ msg: "Error procesando webhook" });
   }
 };

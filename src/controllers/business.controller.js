@@ -10,10 +10,7 @@ import { geocodeZipCentroid } from "../utils/geocodeZip.js";
 
 // Utils
 function buildGeoJSON({ lng, lat }) {
-  return {
-    type: "Point",
-    coordinates: [lng, lat],
-  };
+  return { type: "Point", coordinates: [lng, lat] };
 }
 const tryParseJSON = (s) => {
   if (typeof s !== "string") return null;
@@ -24,11 +21,9 @@ const tryParseJSON = (s) => {
   }
 };
 
-// Normaliza casos como: ['["id1","id2"]','["id1","id2"]'] -> ['id1','id2','id1','id2']
-// También soporta: '["id1","id2"]' (string plano) -> ['id1','id2']
+// Normaliza arrays de ids provenientes de múltiples formatos
 function normalizeIdArrayField(field) {
   let out = [];
-
   if (Array.isArray(field)) {
     for (const item of field) {
       if (typeof item === "string") {
@@ -48,8 +43,6 @@ function normalizeIdArrayField(field) {
   } else if (field && typeof field === "object" && field._id) {
     out = [String(field._id)];
   }
-
-  // Filtra a ids válidos y de‑duplica
   const onlyIds = out.map(String).filter((x) => /^[0-9a-fA-F]{24}$/.test(x));
   return Array.from(new Set(onlyIds));
 }
@@ -61,6 +54,26 @@ const parseJSONField = (field, fallback = {}) => {
     return fallback;
   }
 };
+
+const CLEAN = (v) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
+// 🔁 Fallbacks de coordenadas
+const FALLBACK_DALLAS = { lat: 32.7767, lng: -96.797 };
+
+async function coordsFromCommunityOrDallas(communityId) {
+  if (communityId) {
+    const c = await Community.findById(communityId);
+    const arr = c?.coordinates?.coordinates;
+    if (
+      Array.isArray(arr) &&
+      arr.length === 2 &&
+      arr.every((n) => typeof n === "number")
+    ) {
+      return { lat: arr[1], lng: arr[0] };
+    }
+  }
+  return FALLBACK_DALLAS;
+}
 
 /**
  * Crear un nuevo negocio
@@ -91,54 +104,102 @@ export const createBusiness = async (req, res) => {
       serviceAreaZips = [],
     } = req.body;
 
+    // Normalizaciones
     categories = normalizeIdArrayField(categories);
     location = parseJSONField(location);
     contact = parseJSONField(contact);
     openingHours = parseJSONField(openingHours);
-    tags = parseJSONField(tags);
-    images = parseJSONField(images);
+    tags = parseJSONField(tags, []);
+    images = parseJSONField(images, []);
     serviceAreaZips = parseJSONField(serviceAreaZips, []);
 
     const communityDoc = await Community.findById(community);
     if (!communityDoc)
       return res.status(404).json({ msg: "Comunidad no encontrada." });
 
+    // 📌 IMÁGENES: respeta lo que vino del parse (JSON) y/o imageProcessor (Cloudinary)
+    if (!featuredImage && req.body.featuredImage)
+      featuredImage = req.body.featuredImage;
+    if (!profileImage && req.body.profileImage)
+      profileImage = req.body.profileImage;
+
+    if (Array.isArray(req.body.images) && req.body.images.length) {
+      // fusiona galería si imageProcessor subió nuevas
+      images = [...(Array.isArray(images) ? images : []), ...req.body.images];
+    }
+
+    // 🧭 Coordenadas SIEMPRE
+    let coords = null;
     let locationPrecision = "address";
 
-    if (!isDeliveryOnly) {
-      // flujo normal con dirección exacta
-      if (!location?.address || !location?.city || !location?.state) {
-        return res
-          .status(400)
-          .json({ msg: "Dirección incompleta para geocodificación." });
-      }
-      const fullAddress = `${location.address}, ${location.city}, ${
-        location.state
-      }, ${location.country || "USA"}`;
-      const coords = await geocodeAddress(fullAddress);
-      location.coordinates = buildGeoJSON(coords);
-      locationPrecision = "address";
-      // Asegura zipCode si viene
-      if (!location.zipCode && primaryZip) location.zipCode = primaryZip;
-    } else {
-      // solo delivery: geocodificar centroid del ZIP
-      if (!primaryZip || !/^\d{5}$/.test(primaryZip)) {
+    if (isDeliveryOnly) {
+      // Delivery-only → centroide del ZIP
+      const zip = (primaryZip || location?.zipCode || "")
+        .toString()
+        .slice(0, 5);
+      if (!/^\d{5}$/.test(zip)) {
         return res.status(400).json({
           msg: "Para negocios solo delivery, primaryZip (5 dígitos) es obligatorio.",
         });
       }
-      const coords = await geocodeZipCentroid(primaryZip, "US");
+      const zc = await geocodeZipCentroid(zip, "US");
+      if (!zc || typeof zc.lat !== "number" || typeof zc.lng !== "number") {
+        // fallback: comunidad o Dallas
+        const fb = await coordsFromCommunityOrDallas(community);
+        coords = buildGeoJSON(fb);
+      } else {
+        coords = buildGeoJSON(zc);
+      }
+
       location = {
         address: "",
-        city: "",
-        state: "",
-        zipCode: primaryZip,
-        country: "USA",
-        coordinates: buildGeoJSON(coords),
+        city: location?.city || "",
+        state: location?.state || "",
+        zipCode: zip,
+        country: location?.country || "USA",
+        coordinates: coords,
       };
       locationPrecision = "zipcode";
+    } else {
+      // Dirección física
+      const adr = location?.address;
+      const city = location?.city;
+      const st = location?.state;
+      const ctry = location?.country || "USA";
+
+      if (adr && city && st) {
+        try {
+          const fullAddress = `${adr}, ${city}, ${st}, ${ctry}`;
+          const g = await geocodeAddress(fullAddress);
+          if (g && typeof g.lat === "number" && typeof g.lng === "number") {
+            coords = buildGeoJSON(g);
+          } else {
+            const fb = await coordsFromCommunityOrDallas(community);
+            coords = buildGeoJSON(fb);
+          }
+        } catch {
+          const fb = await coordsFromCommunityOrDallas(community);
+          coords = buildGeoJSON(fb);
+        }
+        location.coordinates = coords;
+        if (!location.zipCode && primaryZip) location.zipCode = primaryZip;
+      } else {
+        // Dirección incompleta → fallback comunidad/Dallas
+        const fb = await coordsFromCommunityOrDallas(community);
+        coords = buildGeoJSON(fb);
+        location = {
+          address: adr || "",
+          city: city || "",
+          state: st || "",
+          zipCode: location?.zipCode || primaryZip || "",
+          country: ctry,
+          coordinates: coords,
+        };
+      }
+      locationPrecision = "address";
     }
 
+    // 👤 Propietario
     const user = await User.findById(req.user.id);
 
     const newBusiness = new Business({
@@ -146,24 +207,34 @@ export const createBusiness = async (req, res) => {
       description,
       categories,
       community,
-      isDeliveryOnly,
-      primaryZip,
+      isDeliveryOnly: Boolean(isDeliveryOnly),
+      primaryZip: primaryZip || location?.zipCode || "",
       serviceAreaZips,
       locationPrecision,
       location,
-      contact,
+      contact: {
+        phone: contact?.phone || "",
+        email: CLEAN(contact?.email),
+        website: CLEAN(contact?.website),
+        socialMedia: {
+          facebook: CLEAN(contact?.socialMedia?.facebook),
+          instagram: CLEAN(contact?.socialMedia?.instagram),
+          whatsapp: CLEAN(contact?.socialMedia?.whatsapp),
+        },
+      },
       openingHours,
-      tags,
+      tags: Array.isArray(tags) ? tags : [],
       isVerified: isVerified ?? false,
       owner: user._id,
-      featuredImage,
+      featuredImage: featuredImage || "/placeholder-negocio.jpg",
       profileImage,
       images,
-      isPremium: user.isPremium,
+      isPremium: !!user.isPremium,
     });
 
     await newBusiness.save();
 
+    // Promover a business_owner si aún es "user"
     if (user.role === "user") {
       user.role = "business_owner";
       await user.save();
@@ -185,18 +256,37 @@ export const createBusiness = async (req, res) => {
 
 /**
  * Obtener todos los negocios
+ * - Si NO envías lat/lng → devuelve paginado sin filtro geoespacial (recientes)
+ * - Si envías lat/lng → filtra por radio geoespacial como antes
  */
 export const getAllBusinesses = async (req, res) => {
   try {
     const { lat, lng, page = 1, limit = 15 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const parsedLat = parseFloat(lat);
-    const parsedLng = parseFloat(lng);
 
     if (!lat || !lng) {
-      return res.status(400).json({ msg: "Faltan coordenadas del usuario." });
+      // 🔁 sin coordenadas → lista paginada por fecha (recientes)
+      const [businesses, total] = await Promise.all([
+        Business.find({})
+          .populate("categories community owner")
+          .sort({ createdAt: -1 })
+          .limit(parseInt(limit))
+          .skip(skip),
+        Business.countDocuments({}),
+      ]);
+
+      return res.status(200).json({
+        businesses,
+        total,
+        perPage: parseInt(limit),
+        page: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      });
     }
 
+    // 🧭 con coordenadas → búsqueda geoespacial
+    const parsedLat = parseFloat(lat);
+    const parsedLng = parseFloat(lng);
     const radiusInMiles = 80;
     const earthRadiusInMiles = 3963.2;
     const radiusInRadians = radiusInMiles / earthRadiusInMiles;
@@ -308,42 +398,64 @@ export const updateBusiness = async (req, res) => {
 
     let locationPrecision = business.locationPrecision;
 
-    // Determinar si cambiamos geolocalización
+    // Recalcular ubicación si corresponde
     if (isDeliveryOnly === true || business.isDeliveryOnly === true) {
-      // delivery-only en la nueva versión o ya lo era
-      const newZip = primaryZip || business.primaryZip;
-      if (!newZip || !/^\d{5}$/.test(newZip)) {
+      const newZip = (
+        primaryZip ||
+        business.primaryZip ||
+        location?.zipCode ||
+        ""
+      )
+        .toString()
+        .slice(0, 5);
+      if (!/^\d{5}$/.test(newZip)) {
         return res.status(400).json({
           msg: "Para negocios solo delivery, primaryZip (5 dígitos) es obligatorio.",
         });
       }
-      const coords = await geocodeZipCentroid(newZip, "US");
+      const zc = await geocodeZipCentroid(newZip, "US");
+      const toUse =
+        zc && typeof zc.lat === "number" && typeof zc.lng === "number"
+          ? zc
+          : await coordsFromCommunityOrDallas(community || business.community);
+
       location = {
         address: "",
         city: "",
         state: "",
         zipCode: newZip,
         country: "USA",
-        coordinates: buildGeoJSON(coords),
+        coordinates: buildGeoJSON(toUse),
       };
       locationPrecision = "zipcode";
     } else if (location?.address && location?.city && location?.state) {
-      // negocio con dirección exacta
       try {
         const fullAddress = `${location.address}, ${location.city}, ${
           location.state
         }, ${location.country || "USA"}`;
-        const coords = await geocodeAddress(fullAddress);
-        location.coordinates = buildGeoJSON(coords);
+        const g = await geocodeAddress(fullAddress);
+        const toUse =
+          g && typeof g.lat === "number" && typeof g.lng === "number"
+            ? g
+            : await coordsFromCommunityOrDallas(
+                community || business.community
+              );
+        location.coordinates = buildGeoJSON(toUse);
         locationPrecision = "address";
       } catch (err) {
         console.error("❌ Error al geocodificar:", err);
-        return res
-          .status(400)
-          .json({ msg: "No se pudo obtener coordenadas para la dirección." });
+        const fb = await coordsFromCommunityOrDallas(
+          community || business.community
+        );
+        location = {
+          ...(location || {}),
+          coordinates: buildGeoJSON(fb),
+        };
+        locationPrecision = "address";
       }
     }
 
+    // IMÁGENES: respeta las existentes si no se envían
     featuredImage =
       req.body.featuredImage ||
       req.body.featuredImageUrl ||
@@ -354,6 +466,9 @@ export const updateBusiness = async (req, res) => {
       business.profileImage;
     if (req.body.existingImages) {
       images = parseJSONField(req.body.existingImages, business.images);
+    }
+    if (Array.isArray(req.body.images) && req.body.images.length) {
+      images = [...(Array.isArray(images) ? images : []), ...req.body.images];
     }
 
     Object.assign(business, {
@@ -371,7 +486,6 @@ export const updateBusiness = async (req, res) => {
       images,
     });
 
-    // Actualiza flags/ZIP y ubicación
     if (typeof isDeliveryOnly === "boolean")
       business.isDeliveryOnly = isDeliveryOnly;
     if (typeof primaryZip === "string") business.primaryZip = primaryZip;
@@ -382,7 +496,7 @@ export const updateBusiness = async (req, res) => {
 
     await business.save();
 
-    // Notifica a seguidores (igual que tu código)
+    // Notificaciones a seguidores
     const followers = await Follow.find({
       entityType: "business",
       entityId: business._id,
@@ -447,7 +561,6 @@ export const getMyBusinesses = async (req, res) => {
     const businesses = await Business.find({ owner: req.user.id }).populate(
       "categories community owner"
     );
-
     res.status(200).json({ businesses });
   } catch (error) {
     console.error("❌ Error en getMyBusinesses:", error);
@@ -535,7 +648,6 @@ export const getBusinessesByCommunity = async (req, res) => {
       },
     };
 
-    // ✅ Agregar filtro por comunidad si se proporciona
     if (communityId) {
       query.community = communityId;
     }
@@ -544,11 +656,7 @@ export const getBusinessesByCommunity = async (req, res) => {
       .select(
         "_id name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
       )
-
-      .populate({
-        path: "categories",
-        select: "name",
-      });
+      .populate({ path: "categories", select: "name" });
 
     res.status(200).json({ businesses });
   } catch (error) {
@@ -598,11 +706,7 @@ export const getBusinessesForMapByCommunity = async (req, res) => {
       .select(
         "_id name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
       )
-
-      .populate({
-        path: "categories",
-        select: "name",
-      });
+      .populate({ path: "categories", select: "name" });
 
     console.log("✅ Negocios encontrados:", businesses.length);
 

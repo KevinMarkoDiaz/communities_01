@@ -13,10 +13,11 @@ import {
   uploaderMiddleware,
   imageProcessor,
 } from "../middlewares/imageUpload.middleware.js";
+
 import { parseDataField } from "../middlewares/parseDataField.js";
 import { addPromotionMetaFields } from "../middlewares/addPromotionMetaFields.js";
 // import { validateBody } from "../middlewares/validator.middleware.js";
-// import { promotionSchema } from "../schemas/promotion.schema.js"; // Si lo tenés
+// import { promotionSchema } from "../schemas/promotion.schema.js";
 
 const router = Router();
 
@@ -27,12 +28,13 @@ router.get("/promotions", getPromotions);
 router.post(
   "/promotions",
   authMiddleware,
-  uploaderMiddleware,
-  imageProcessor,
-  parseDataField,
-  addPromotionMetaFields,
-  // validateBody(promotionSchema), // opcional
-  createPromotion
+  hasRole("admin", "business_owner"),
+  uploaderMiddleware, // 1) multer
+  parseDataField, // 2) fusiona req.body.data primero
+  imageProcessor, // 3) sube imágenes y coloca URLs en req.body
+  addPromotionMetaFields, // 4) agrega campos meta (createdBy, etc.)
+  // validateBody(promotionSchema), // 5) (opcional) valida inputs del cliente
+  createPromotion // 6) controlador
 );
 
 // 📥 Obtener promociones del usuario autenticado
@@ -43,9 +45,9 @@ router.put(
   "/promotions/:id",
   authMiddleware,
   hasRole("admin", "business_owner"),
-  uploaderMiddleware,
-  imageProcessor,
-  parseDataField,
+  uploaderMiddleware, // 1) multer
+  parseDataField, // 2) primero fusiona data
+  imageProcessor, // 3) luego procesa imágenes
   addPromotionMetaFields,
   // validateBody(promotionSchema.partial()), // opcional
   updatePromotion

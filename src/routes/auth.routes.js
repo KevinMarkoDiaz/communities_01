@@ -20,6 +20,8 @@ import {
   handleProfileImage,
 } from "../middlewares/imageUpload.middleware.js";
 
+import { parseDataField } from "../middlewares/parseDataField.js";
+
 import { updateUser } from "../controllers/user.controller.js";
 import { createAccessToken } from "../libs/jwt.js";
 import { setAuthCookie } from "../utils/setAuthCookie.js";
@@ -32,8 +34,7 @@ router.post("/register", validateBody(userSchema), registerUser);
 // 🔐 Login con validación Zod
 router.post("/login", validateBody(loginSchema), loginUser);
 
-// 🚪 Logout (Passport + tu lógica)
-
+// 🚪 Logout
 router.post("/logout", logoutUser);
 
 // 👤 Perfil del usuario autenticado con tu JWT
@@ -51,14 +52,15 @@ router.get("/status", (req, res) => {
   }
 });
 
-// ✏️ Actualizar perfil
+// ✏️ Actualizar perfil (orden correcto para multipart)
 router.put(
   "/profile",
   authMiddleware,
-  singleProfileImageUpload,
-  handleProfileImage,
-  validateBody(userUpdateSchema),
-  updateUser
+  singleProfileImageUpload, // 1) multer (lee archivo y deja req.file/req.body)
+  parseDataField, // 2) fusiona req.body.data (si existe) en req.body
+  handleProfileImage, // 3) sube imagen y setea req.body.profileImage (URL)
+  validateBody(userUpdateSchema), // 4) valida inputs del cliente
+  updateUser // 5) controlador
 );
 
 //
@@ -72,7 +74,6 @@ router.get(
 );
 
 // Callback desde Google
-
 router.get(
   "/google/callback",
   passport.authenticate("google", {

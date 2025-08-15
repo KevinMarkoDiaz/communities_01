@@ -47,29 +47,29 @@ app.use(cookieParser());
 // ─────────────────────────────────────────────────────────────
 // CORS
 // Para local (como lo tienes):
-// app.use(
-//   cors({
-//     origin: "http://localhost:5173",
-//     credentials: true,
-//   })
-// );
-
-// Si luego quieres allowlist en prod, descomenta y ajusta:
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://communidades.com",
-  "https://www.communidades.com",
-  "https://dev.communidades.com",
-];
 app.use(
   cors({
-    origin(origin, cb) {
-      if (!origin || allowedOrigins.includes(origin)) cb(null, true);
-      else cb(new Error("Not allowed by CORS: " + origin));
-    },
+    origin: "http://localhost:5173",
     credentials: true,
   })
 );
+
+// Si luego quieres allowlist en prod, descomenta y ajusta:
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://communidades.com",
+//   "https://www.communidades.com",
+//   "https://dev.communidades.com",
+// ];
+// app.use(
+//   cors({
+//     origin(origin, cb) {
+//       if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+//       else cb(new Error("Not allowed by CORS: " + origin));
+//     },
+//     credentials: true,
+//   })
+// );
 
 // Passport
 app.use(passport.initialize());

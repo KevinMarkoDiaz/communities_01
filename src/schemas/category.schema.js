@@ -1,5 +1,12 @@
-// src/schemas/category.schema.js
 import { z } from "zod";
+
+/**
+ * ⚠️ Importante:
+ * Zod aquí valida SOLO lo que viene del cliente.
+ * Los campos del creador (createdBy, createdByName, createdByRole)
+ * los inyecta el middleware addCategoryCreatorFields,
+ * así que NO deben ser requeridos en este schema.
+ */
 
 const baseCategorySchema = z.object({
   name: z
@@ -13,12 +20,14 @@ const baseCategorySchema = z.object({
     .max(1000, { message: "La descripción no puede exceder 1000 caracteres" })
     .optional(),
 
+  // Puedes mandar directamente un URL de icono...
   icon: z
     .string()
     .url({ message: "El icono debe ser una URL válida" })
     .max(255)
     .optional(),
 
+  // ...o subir archivo; handleProfileImage pondrá aquí la URL resultante
   profileImage: z
     .string()
     .url("La imagen debe ser una URL válida")
@@ -26,14 +35,8 @@ const baseCategorySchema = z.object({
     .optional(),
 });
 
-// Solo para creación (requiere datos del creador)
-export const categoryCreateSchema = baseCategorySchema.extend({
-  createdBy: z
-    .string()
-    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de usuario creador inválido" }),
-  createdByName: z.string().min(1).max(100),
-  createdByRole: z.enum(["admin", "business_owner", "user"]),
-});
+// Crear: SOLO inputs del cliente (no exigimos createdBy*)
+export const categoryCreateSchema = baseCategorySchema;
 
-// Para edición (todos los campos opcionales)
+// Actualizar: todo opcional
 export const categoryUpdateSchema = baseCategorySchema.partial();

@@ -38,11 +38,17 @@ const camposActualizables = [
 ];
 
 // ✅ Crear evento
+// ✅ Crear evento (versión unificada y robusta)
 export const createEvent = async (req, res) => {
-  console.log("📥 Datos recibidos:", req.body);
-
   try {
-    const {
+    // 1) Unificar payload (multipart con FormData trae un campo 'data' stringificado)
+    const payload =
+      typeof req.body?.data === "string"
+        ? JSON.parse(req.body.data)
+        : { ...req.body };
+
+    // 2) Extraer campos (con defaults)
+    let {
       title,
       description,
       date,
@@ -66,63 +72,93 @@ export const createEvent = async (req, res) => {
       status = "activo",
       organizer,
       organizerModel,
-    } = req.body;
+    } = payload;
 
-    const realOrganizer = req.user.role === "admin" ? organizer : req.user.id;
+    // 3) Normalizar organizer a string (evita ObjectId top-level)
+    if (organizer && typeof organizer !== "string") {
+      if (typeof organizer?.toString === "function") {
+        organizer = organizer.toString();
+      } else {
+        organizer = String(organizer);
+      }
+    }
+
+    // 4) Quilatar arrays de IDs → string[]
+    const toStringArray = (arr) =>
+      Array.isArray(arr) ? arr.map((x) => String(x)) : [];
+    communities = toStringArray(communities);
+    businesses = toStringArray(businesses);
+    categories = toStringArray(categories);
+    sponsors = toStringArray(sponsors);
+    tags = Array.isArray(tags) ? tags.map(String) : [];
+    // likes normalmente no lo envías en creación; si llega, lo ignoramos
+
+    // 5) Resolver organizer real según rol
+    const realOrganizer =
+      req.user?.role === "admin" && organizer ? organizer : String(req.user.id);
+
     const realModel =
-      req.user.role === "admin"
-        ? organizerModel
-        : req.user.role === "business_owner"
+      req.user?.role === "admin" && organizerModel
+        ? organizerModel // "User" | "Business" (confiamos en tu UI/admin)
+        : req.user?.role === "business_owner"
         ? "Business"
         : "User";
 
-    // 🧭 Coordenadas
+    // 6) Limpieza de links ("" -> undefined)
+    const clean = (val) =>
+      typeof val === "string" && val.trim() === "" ? undefined : val;
+
+    registrationLink = clean(registrationLink);
+    virtualLink = clean(virtualLink);
+
+    // 7) Geocodificación / coordinates (GeoJSON)
     let enrichedLocation = location;
     let geoCoordinates = undefined;
 
     if (isOnline) {
-      console.log("🌐 Evento virtual. Buscando coordenadas de comunidades...");
-
+      // 🌐 ONLINE: intentar usar coordinates de alguna comunidad; si no, fallback a Dallas
       if (communities.length > 0) {
         for (const communityId of communities) {
           const community = await Community.findById(communityId);
-          console.log("🔍 Comunidad:", community?.name);
-
           if (
             community?.coordinates?.coordinates &&
             Array.isArray(community.coordinates.coordinates) &&
-            community.coordinates.coordinates.length === 2
+            community.coordinates.coordinates.length === 2 &&
+            typeof community.coordinates.coordinates[0] === "number" &&
+            typeof community.coordinates.coordinates[1] === "number"
           ) {
             geoCoordinates = {
               type: "Point",
               coordinates: community.coordinates.coordinates,
             };
-            break; // 🛑 Usamos la primera válida
+            break;
           }
         }
       }
 
       if (!geoCoordinates) {
-        console.log(
-          "⚠️ Ninguna comunidad tiene coordenadas válidas. Asignando coordenadas de Dallas por defecto."
-        );
         geoCoordinates = {
           type: "Point",
-          coordinates: [-96.797, 32.7767], // 📍 Centro de Dallas, TX
+          coordinates: [-96.797, 32.7767], // Dallas, TX
         };
       }
-    } else {
-      console.log("📍 Evento presencial. Geocodificando dirección...");
 
+      // Limpia dirección física si vino con datos residuales
+      enrichedLocation = {
+        address: "",
+        city: "",
+        state: "",
+        zipCode: "",
+        country: (location && location.country) || "USA",
+      };
+    } else {
+      // 📍 PRESENCIAL: geocodificar si hay dirección suficiente
       if (location?.address && location?.city && location?.state) {
         const fullAddress = `${location.address}, ${location.city}, ${
           location.state
         }, ${location.country || "USA"}`;
+
         const coords = await geocodeAddress(fullAddress);
-
-        console.log("🌐 Dirección completa:", fullAddress);
-        console.log("📍 Coordenadas obtenidas:", coords);
-
         if (
           !coords ||
           typeof coords.lat !== "number" ||
@@ -134,20 +170,21 @@ export const createEvent = async (req, res) => {
         }
 
         enrichedLocation = { ...location };
-        if (enrichedLocation.coordinates) {
-          delete enrichedLocation.coordinates;
-        }
+        // por si llega un objeto location.coordinates {lat, lng}, lo removemos
+        if (enrichedLocation.coordinates) delete enrichedLocation.coordinates;
 
         geoCoordinates = {
           type: "Point",
           coordinates: [coords.lng, coords.lat],
         };
       } else {
-        console.log("⚠️ Dirección incompleta. No se geocodificará.");
+        // Dirección incompleta → no incluimos coordinates; el índice 2dsphere no fallará si no existe
+        enrichedLocation = { ...(location || {}) };
+        if (enrichedLocation.coordinates) delete enrichedLocation.coordinates;
       }
     }
 
-    // 🧱 Construcción del evento (condicional para coordinates)
+    // 8) Construir documento final del evento
     const eventData = {
       title,
       description,
@@ -164,8 +201,8 @@ export const createEvent = async (req, res) => {
       price,
       isFree,
       isOnline,
-      registrationLink: cleanLink(registrationLink),
-      virtualLink: cleanLink(virtualLink),
+      registrationLink,
+      virtualLink,
       sponsors,
       featured,
       isPublished,
@@ -175,6 +212,7 @@ export const createEvent = async (req, res) => {
       createdBy: req.user.id,
     };
 
+    // Adjuntar GeoJSON solo si es válido
     if (
       geoCoordinates?.type === "Point" &&
       Array.isArray(geoCoordinates.coordinates) &&
@@ -182,24 +220,20 @@ export const createEvent = async (req, res) => {
       typeof geoCoordinates.coordinates[0] === "number" &&
       typeof geoCoordinates.coordinates[1] === "number"
     ) {
-      console.log("✅ Coordenadas válidas:", geoCoordinates.coordinates);
       eventData.coordinates = geoCoordinates;
-    } else {
-      console.log("🚫 Coordenadas no válidas o ausentes. No se incluirán.");
     }
 
+    // 9) Crear y guardar
     const newEvent = new Event(eventData);
 
-    // ✅ Si el creador es premium, marcamos el evento como premium
+    // Premium flag si aplica
     if (req.user.isPremium === true) {
       newEvent.isPremium = true;
     }
 
     await newEvent.save();
 
-    console.log("✅ Evento guardado correctamente en la base de datos.");
-
-    // 🔔 Notificar seguidores
+    // 🔔 Notificar seguidores de negocios mencionados
     if (businesses.length) {
       const followers = await Follow.find({
         entityType: "business",
@@ -213,18 +247,15 @@ export const createEvent = async (req, res) => {
           link: `/eventos/${newEvent._id}`,
         }));
         await Notification.insertMany(notifications);
-        console.log(
-          `📢 Notificaciones creadas para ${followers.length} seguidores.`
-        );
       }
     }
 
-    res
+    return res
       .status(201)
       .json({ msg: "Evento creado exitosamente", event: newEvent });
   } catch (error) {
     console.error("❌ Error en createEvent:", error);
-    res
+    return res
       .status(500)
       .json({ msg: "Error al crear el evento", error: error.message });
   }

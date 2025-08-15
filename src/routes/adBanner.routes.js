@@ -16,7 +16,9 @@ import {
   approveAdBanner,
   rejectAdBanner,
   createAdCheckout,
-  myAdBanners, // ⬅️ NUEVO
+  myAdBanners,
+  listMyAdBanners,
+  adminListAdBanners, // ⬅️ NUEVO
 } from "../controllers/adBanner.controller.js";
 
 import {
@@ -84,6 +86,13 @@ router.post(
   authMiddleware,
   hasRole("admin"),
   rejectAdBanner
+);
+router.get("/ads/my-banners", authMiddleware, listMyAdBanners);
+router.get(
+  "/admin/ads/banners",
+  authMiddleware,
+  hasRole("admin"),
+  adminListAdBanners
 );
 
 /** OWNER o ADMIN: crear checkout para pagar */

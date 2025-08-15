@@ -1,6 +1,44 @@
 import { z } from "zod";
 
-// Esquema base sin validaciones condicionales
+/* ---------- Helpers de coerción ---------- */
+
+// Convierte ObjectId/objeto con toString en string
+const coerceObjectIdString = z.preprocess((v) => {
+  if (v && typeof v === "object" && typeof v.toString === "function") {
+    return v.toString();
+  }
+  return v;
+}, z.string().regex(/^[0-9a-fA-F]{24}$/, { message: "ID inválido" }));
+
+// Array de IDs flexible: acepta strings, objetos con _id, ObjectId, etc.
+const coerceIdArray = z.preprocess((arr) => {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((x) => {
+    if (x && typeof x === "object") {
+      if (typeof x.toString === "function") return x.toString();
+      if (x._id) return String(x._id);
+      return String(x);
+    }
+    return String(x);
+  });
+}, z.array(z.string().regex(/^[0-9a-fA-F]{24}$/)).default([]));
+
+// Acepta tupla [lng, lat] o un objeto { lat, lng } y lo normaliza a tupla
+const coordsTupleOrLatLngObj = z.preprocess((v) => {
+  // Si ya es tupla [lng, lat]
+  if (Array.isArray(v) && v.length === 2) return v;
+  // Si es objeto { lat, lng }
+  if (v && typeof v === "object" && ("lat" in v || "lng" in v)) {
+    const lat = Number(v.lat);
+    const lng = Number(v.lng);
+    if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+      return [lng, lat];
+    }
+  }
+  return v; // dejar que la validación lo marque opcional/incorrecto
+}, z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]).optional());
+
+/* ---------- Esquema base ---------- */
 export const eventSchemaBase = z.object({
   title: z
     .string()
@@ -29,14 +67,24 @@ export const eventSchemaBase = z.object({
 
   location: z
     .object({
-      address: z.string(),
-      city: z.string(),
-      state: z.string(),
+      address: z.string().optional(), // ← opcional aquí; se vuelve obligatorio en superRefine si no es online
+      city: z.string().optional(),
+      state: z.string().optional(),
       zipCode: z.string().optional(),
       country: z.string().optional(),
-      coordinates: z
-        .tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])
-        .optional(),
+      // Acepta tupla o {lat, lng}, se normaliza a tupla [lng, lat]
+      coordinates: coordsTupleOrLatLngObj,
+    })
+    .optional(),
+
+  // (Opcional) GeoJSON top-level si algún flujo lo envía
+  coordinates: z
+    .object({
+      type: z.literal("Point"),
+      coordinates: z.tuple([
+        z.number().min(-180).max(180), // lng
+        z.number().min(-90).max(90), // lat
+      ]),
     })
     .optional(),
 
@@ -82,24 +130,11 @@ export const eventSchemaBase = z.object({
     .transform((val) => (val === "" ? undefined : val))
     .optional(),
 
-  communities: z
-    .array(z.string().regex(/^[0-9a-fA-F]{24}$/))
-    .optional()
-    .default([]),
+  communities: coerceIdArray, // ← flexible
+  businesses: coerceIdArray, // ← flexible
+  categories: coerceIdArray, // ← flexible
 
-  businesses: z
-    .array(z.string().regex(/^[0-9a-fA-F]{24}$/))
-    .optional()
-    .default([]),
-
-  categories: z
-    .array(z.string().regex(/^[0-9a-fA-F]{24}$/))
-    .optional()
-    .default([]),
-
-  organizer: z
-    .string()
-    .regex(/^[0-9a-fA-F]{24}$/, { message: "ID de organizador inválido" }),
+  organizer: coerceObjectIdString, // ← ahora acepta ObjectId/objeto y lo convierte a string
 
   organizerModel: z.enum(["User", "Business"], {
     errorMap: () => ({
@@ -107,10 +142,7 @@ export const eventSchemaBase = z.object({
     }),
   }),
 
-  sponsors: z
-    .array(z.string().regex(/^[0-9a-fA-F]{24}$/))
-    .optional()
-    .default([]),
+  sponsors: coerceIdArray, // ← flexible
 
   isPublished: z.boolean().optional().default(false),
 
@@ -122,8 +154,9 @@ export const eventSchemaBase = z.object({
     .default("activo"),
 });
 
-// Esquema con validaciones condicionales
+/* ---------- Reglas condicionales ---------- */
 export const eventSchema = eventSchemaBase.superRefine((data, ctx) => {
+  // Dirección obligatoria cuando NO es online
   if (!data.isOnline) {
     const loc = data.location || {};
 
@@ -134,7 +167,6 @@ export const eventSchema = eventSchemaBase.superRefine((data, ctx) => {
         message: "Dirección obligatoria",
       });
     }
-
     if (!loc.city?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -142,7 +174,6 @@ export const eventSchema = eventSchemaBase.superRefine((data, ctx) => {
         message: "Ciudad obligatoria",
       });
     }
-
     if (!loc.state?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -151,7 +182,9 @@ export const eventSchema = eventSchemaBase.superRefine((data, ctx) => {
       });
     }
   }
+
+  // Si es online, no exigir location.*; y si vino location.coordinates como objeto, ya quedó normalizado a tupla
 });
 
-// Esquema parcial para updates
+/* ---------- Esquema parcial para updates ---------- */
 export const partialEventSchema = eventSchemaBase.partial();

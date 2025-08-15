@@ -1,4 +1,4 @@
-import { validationResult } from "express-validator";
+// src/controllers/category.controller.js
 import Category from "../models/category.model.js";
 import User from "../models/user.model.js";
 import mongoose from "mongoose";
@@ -6,40 +6,58 @@ import mongoose from "mongoose";
 // 🔧 Validación rápida de ObjectId
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+// Utilidad: intenta parsear JSON si es string, si no devuelve tal cual
+const parseMaybeJSON = (v, fallback = {}) => {
+  if (typeof v !== "string") return v ?? fallback;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+};
+
 /**
  * Crear una nueva categoría.
+ * Compatible con:
+ * - multipart/form-data con campo "data" (string JSON)
+ * - JSON plano (req.body ya fusionado por parseDataField)
  */
 export const createCategory = async (req, res) => {
   try {
-    if (!req.body.data) {
-      return res.status(400).json({ msg: "Faltan datos en la solicitud." });
-    }
+    // 1) Normaliza origen de datos
+    const body = req.body?.data
+      ? parseMaybeJSON(req.body.data, {})
+      : req.body || {};
 
-    let data;
-    try {
-      data = JSON.parse(req.body.data);
-    } catch (parseErr) {
-      return res.status(400).json({ msg: "Formato JSON inválido en 'data'." });
-    }
+    const name = body.name;
+    const description = body.description ?? "";
+    // icon puede venir del body.icon (URL directa) o de handleProfileImage (profileImage)
+    const icon = body.icon || req.body.icon || req.body.profileImage || "";
 
-    const { name, description } = data;
-
-    if (!name) {
+    if (!name || String(name).trim() === "") {
       return res.status(400).json({ msg: "El nombre es obligatorio." });
     }
 
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(401).json({ msg: "Usuario no encontrado." });
+    // 2) Creador: usa lo inyectado por middleware si existe; si no, sácalo de req.user
+    let createdBy = body.createdBy || req.body.createdBy;
+    let createdByName = body.createdByName || req.body.createdByName;
+    let createdByRole = body.createdByRole || req.body.createdByRole;
 
-    const icon = req.body.profileImage || ""; // Asumimos subida por Cloudinary
+    if (!createdBy || !createdByName || !createdByRole) {
+      const user = await User.findById(req.user.id).select("name role");
+      if (!user) return res.status(401).json({ msg: "Usuario no encontrado." });
+      createdBy = user._id;
+      createdByName = user.name || "Usuario";
+      createdByRole = user.role || "user";
+    }
 
     const category = new Category({
       name,
       description,
       icon,
-      createdBy: user._id,
-      createdByName: user.name,
-      createdByRole: user.role,
+      createdBy,
+      createdByName,
+      createdByRole,
     });
 
     await category.save();
@@ -93,6 +111,7 @@ export const getCategoryById = async (req, res) => {
 
 /**
  * Actualizar una categoría.
+ * Acepta multipart con "data" o JSON plano.
  */
 export const updateCategory = async (req, res) => {
   const { id } = req.params;
@@ -102,20 +121,10 @@ export const updateCategory = async (req, res) => {
   }
 
   try {
-    let data;
-
-    // ✅ Intentamos parsear JSON si viene como multipart/form-data
-    if (req.body.data) {
-      try {
-        data = JSON.parse(req.body.data);
-      } catch (err) {
-        return res.status(400).json({ msg: "Formato inválido en 'data'." });
-      }
-    } else {
-      data = req.body; // fallback si viene como JSON plano
-    }
-
-    const { name, description, createdBy, createdByName, createdByRole } = data;
+    const body = req.body?.data
+      ? parseMaybeJSON(req.body.data, {})
+      : req.body || {};
+    const { name, description, createdBy, createdByName, createdByRole } = body;
 
     const category = await Category.findById(id);
     if (!category) {
@@ -126,31 +135,35 @@ export const updateCategory = async (req, res) => {
     const esAdmin = req.user.role === "admin";
 
     if (!esCreador && !esAdmin) {
-      return res.status(403).json({
-        msg: "No tienes permisos para editar esta categoría.",
-      });
+      return res
+        .status(403)
+        .json({ msg: "No tienes permisos para editar esta categoría." });
     }
 
     if (createdBy || createdByName || createdByRole) {
-      return res.status(400).json({
-        msg: "No se pueden modificar los datos del creador.",
-      });
+      return res
+        .status(400)
+        .json({ msg: "No se pueden modificar los datos del creador." });
     }
 
-    if (name) category.name = name;
-    if (description) category.description = description;
+    if (typeof name === "string" && name.trim()) category.name = name.trim();
+    if (typeof description === "string") category.description = description;
 
-    // ✅ Actualizar icono si se envía uno nuevo (string o URL)
-    if (req.body.profileImage !== undefined) {
-      category.icon = req.body.profileImage;
+    // icon puede venir directo o por subida de imagen (profileImage en req.body)
+    if (typeof body.icon === "string" && body.icon.trim()) {
+      category.icon = body.icon.trim();
+    } else if (
+      typeof req.body.profileImage === "string" &&
+      req.body.profileImage.trim()
+    ) {
+      category.icon = req.body.profileImage.trim();
     }
 
     await category.save();
 
-    res.status(200).json({
-      msg: "Categoría actualizada correctamente.",
-      category,
-    });
+    res
+      .status(200)
+      .json({ msg: "Categoría actualizada correctamente.", category });
   } catch (error) {
     console.error("❌ Error en updateCategory:", error);
     res.status(500).json({ msg: "Error al actualizar la categoría." });
