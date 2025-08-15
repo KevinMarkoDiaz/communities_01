@@ -97,4 +97,9 @@ export const updateBusinessSchema = z.object({
   tags: z.array(z.string()).optional(),
   isVerified: z.boolean().optional(),
   owner: z.undefined(), // ⚠️ No actualizable desde frontend
+  isDeliveryOnly: z.boolean().optional(),
+  primaryZip: z
+    .string()
+    .regex(/^\d{5}$/)
+    .optional(),
 });

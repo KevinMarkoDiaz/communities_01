@@ -1,3 +1,4 @@
+// routes/business.routes.js
 import { Router } from "express";
 import {
   createBusiness,
@@ -12,6 +13,8 @@ import {
   getBusinessesForMapByCommunity, // ✅ Ruta final usada para el mapa
 } from "../controllers/business.controller.js";
 
+import Business from "../models/business.model.js"; // ✅ NECESARIO para /search
+
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
 import { validateBody } from "../middlewares/validateBody.js";
@@ -24,6 +27,53 @@ import {
 import { parseDataField } from "../middlewares/parseDataField.js";
 
 const router = Router();
+
+// Helper pre-parser (igual lógica que en PUT) para usar antes de validateBody
+const preparseForValidation = (req, res, next) => {
+  try {
+    const parseIfString = (field) => {
+      if (typeof req.body[field] === "string") {
+        try {
+          req.body[field] = JSON.parse(req.body[field]);
+        } catch (err) {
+          console.warn(`⚠️ No se pudo parsear ${field}:`, err.message);
+          req.body[field] = undefined;
+        }
+      }
+    };
+
+    [
+      "categories",
+      "location",
+      "contact",
+      "openingHours",
+      "tags",
+      "serviceAreaZips",
+    ].forEach(parseIfString);
+
+    if (typeof req.body.isVerified === "string") {
+      req.body.isVerified = req.body.isVerified === "true";
+    }
+    if (typeof req.body.isDeliveryOnly === "string") {
+      req.body.isDeliveryOnly = req.body.isDeliveryOnly === "true";
+    }
+
+    // Si viene existingImages sin images, promuévelo para validación/merge
+    if (req.body.existingImages && !req.body.images) {
+      try {
+        req.body.images = JSON.parse(req.body.existingImages);
+      } catch (err) {
+        console.warn("❗ Error al parsear existingImages:", err.message);
+        req.body.images = [];
+      }
+    }
+
+    next();
+  } catch (e) {
+    console.error("🛑 Error al preparsear campos:", e);
+    res.status(400).json({ msg: "Error al preparar datos para validación" });
+  }
+};
 
 // ✅ Rutas específicas primero
 router.get("/map/:communityId", getBusinessesForMapByCommunity);
@@ -40,6 +90,8 @@ router.post(
   uploaderMiddleware,
   imageProcessor,
   parseDataField,
+  preparseForValidation, // ✅ normaliza antes de validar
+  validateBody(businessSchema), // ✅ valida POST
   createBusiness
 );
 
@@ -83,42 +135,7 @@ router.put(
   hasRole("admin", "business_owner"),
   uploaderMiddleware,
   imageProcessor,
-  (req, res, next) => {
-    try {
-      const parseIfString = (field) => {
-        if (typeof req.body[field] === "string") {
-          try {
-            req.body[field] = JSON.parse(req.body[field]);
-          } catch (err) {
-            console.warn(`⚠️ No se pudo parsear ${field}:`, err.message);
-            req.body[field] = undefined;
-          }
-        }
-      };
-
-      ["categories", "location", "contact", "openingHours", "tags"].forEach(
-        parseIfString
-      );
-
-      if (typeof req.body.isVerified === "string") {
-        req.body.isVerified = req.body.isVerified === "true";
-      }
-
-      if (req.body.existingImages && !req.body.images) {
-        try {
-          req.body.images = JSON.parse(req.body.existingImages);
-        } catch (err) {
-          console.warn("❗ Error al parsear existingImages:", err.message);
-          req.body.images = [];
-        }
-      }
-
-      next();
-    } catch (e) {
-      console.error("🛑 Error al preparsear campos:", e);
-      res.status(400).json({ msg: "Error al preparar datos para validación" });
-    }
-  },
+  preparseForValidation, // ✅ misma normalización que POST
   validateBody(updateBusinessSchema),
   updateBusiness
 );

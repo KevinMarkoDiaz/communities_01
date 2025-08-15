@@ -52,13 +52,13 @@ const locationSchema = new mongoose.Schema({
   zipCode: { type: String, default: "" },
   country: { type: String, default: "USA" },
   coordinates: {
-    type: { type: String, enum: ["Point"], default: "Point", required: true },
+    type: { type: String, enum: ["Point"], default: "Point" },
     coordinates: {
       type: [Number], // [lng, lat]
       required: true,
       validate: {
         validator(value) {
-          return Array.isArray(value) && value.length === 2;
+          return value == null || (Array.isArray(value) && value.length === 2);
         },
         message: "Las coordenadas deben tener [lng, lat]",
       },
