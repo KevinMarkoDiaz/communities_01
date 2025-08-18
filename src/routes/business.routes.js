@@ -25,6 +25,7 @@ import {
   uploaderMiddleware,
 } from "../middlewares/imageUpload.middleware.js";
 import { parseDataField } from "../middlewares/parseDataField.js";
+import { debugMultipart } from "../middlewares/debugMultipart.middleware.js";
 
 const router = Router();
 
@@ -37,7 +38,8 @@ const preparseForValidation = (req, res, next) => {
           req.body[field] = JSON.parse(req.body[field]);
         } catch (err) {
           console.warn(`⚠️ No se pudo parsear ${field}:`, err.message);
-          req.body[field] = undefined;
+          // Mantén el campo como string o pásalo a undefined si prefieres
+          // req.body[field] = undefined;
         }
       }
     };
@@ -49,6 +51,7 @@ const preparseForValidation = (req, res, next) => {
       "openingHours",
       "tags",
       "serviceAreaZips",
+      "existingImages", // 👈 parsea, PERO NO LO MUEVAS
     ].forEach(parseIfString);
 
     if (typeof req.body.isVerified === "string") {
@@ -58,15 +61,9 @@ const preparseForValidation = (req, res, next) => {
       req.body.isDeliveryOnly = req.body.isDeliveryOnly === "true";
     }
 
-    // Si viene existingImages sin images, promuévelo para validación/merge
-    if (req.body.existingImages && !req.body.images) {
-      try {
-        req.body.images = JSON.parse(req.body.existingImages);
-      } catch (err) {
-        console.warn("❗ Error al parsear existingImages:", err.message);
-        req.body.images = [];
-      }
-    }
+    // ❌ ELIMINADO:
+    // if (req.body.existingImages && !req.body.images) { ... }
+    // NO promover existingImages a images
 
     next();
   } catch (e) {
@@ -134,8 +131,10 @@ router.put(
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploaderMiddleware,
-  imageProcessor,
-  preparseForValidation, // ✅ misma normalización que POST
+  debugMultipart, // ← opcional, solo para depurar
+  parseDataField, // ← igual que POST
+  imageProcessor, // ← sube y deja URLs en body
+  preparseForValidation,
   validateBody(updateBusinessSchema),
   updateBusiness
 );

@@ -5,11 +5,41 @@ import Notification from "../models/Notification.model.js";
 import businessView from "../models/businessView.model.js";
 import Follow from "../models/follow.model.js";
 import User from "../models/user.model.js";
+import { v2 as cloudinary } from "cloudinary";
 
 import { geocodeAddress } from "../utils/geocode.js";
 import { geocodeZipCentroid } from "../utils/geocodeZip.js";
 
-// ---------- Utils ----------
+/* ───────── Cloudinary helpers ───────── */
+function isCloudinaryUrl(url = "") {
+  try {
+    const u = new URL(url);
+    return (
+      u.hostname.includes("res.cloudinary.com") &&
+      u.pathname.includes("/upload/")
+    );
+  } catch {
+    return false;
+  }
+}
+function getCloudinaryPublicId(url = "") {
+  try {
+    const path = new URL(url).pathname; // /<cloud>/image/upload/v123/folder/name.jpg
+    const afterUpload = path.split("/upload/")[1];
+    if (!afterUpload) return null;
+    const parts = afterUpload.split("/");
+    if (parts[0]?.startsWith("v") && /^\d+$/.test(parts[0].slice(1)))
+      parts.shift(); // remove vNNN
+    const file = parts.pop(); // name.jpg
+    const name = file.replace(/\.[^.]+$/, "");
+    const folder = parts.join("/");
+    return folder ? `${folder}/${name}` : name;
+  } catch {
+    return null;
+  }
+}
+
+/* ───────── Utils existentes ───────── */
 const CLEAN = (v) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 const tryParseJSON = (s) => {
   if (typeof s !== "string") return null;
@@ -63,7 +93,6 @@ function stripEmptyCoordinates(obj) {
   }
 }
 
-// Fallback geográfico
 const FALLBACK_DALLAS = { lat: 32.7767, lng: -96.797 };
 async function coordsFromCommunityOrDallas(communityId) {
   if (communityId) {
@@ -80,7 +109,7 @@ async function coordsFromCommunityOrDallas(communityId) {
   return FALLBACK_DALLAS;
 }
 
-// ---------- Create ----------
+/* ───────── Create ───────── */
 export const createBusiness = async (req, res) => {
   try {
     if (!["admin", "business_owner", "user"].includes(req.user.role)) {
@@ -116,7 +145,6 @@ export const createBusiness = async (req, res) => {
     images = parseJSONField(images, []);
     serviceAreaZips = parseJSONField(serviceAreaZips, []);
 
-    // Comunidad obligatoria válida
     const communityDoc = await Community.findById(community);
     if (!communityDoc)
       return res.status(404).json({ msg: "Comunidad no encontrada." });
@@ -130,18 +158,14 @@ export const createBusiness = async (req, res) => {
       images = [...(Array.isArray(images) ? images : []), ...req.body.images];
     }
 
-    // REGLA GEO:
-    // - con dirección física → geocode dirección
-    // - delivery-only sin dirección → geocode ZIP (primaryZip)
+    // GEO
     let locationPrecision = "address";
     stripEmptyCoordinates({ location });
-
     const hasPhysicalAddress = Boolean(
       location?.address && location?.city && location?.state
     );
 
     if (!isDeliveryOnly && hasPhysicalAddress) {
-      // Geocodifica dirección
       const fullAddress = `${location.address}, ${location.city}, ${
         location.state
       }, ${location.country || "USA"}`;
@@ -162,7 +186,6 @@ export const createBusiness = async (req, res) => {
       };
       locationPrecision = "address";
     } else if (isDeliveryOnly) {
-      // Delivery-only → ZIP obligatorio
       const zip = (primaryZip || location?.zipCode || "")
         .toString()
         .slice(0, 5);
@@ -186,7 +209,6 @@ export const createBusiness = async (req, res) => {
       };
       locationPrecision = "zipcode";
     } else {
-      // Sin dirección suficiente ni delivery-only → rechaza
       return res.status(400).json({
         msg: "Debes enviar dirección completa o (delivery-only) un ZIP válido.",
       });
@@ -227,7 +249,6 @@ export const createBusiness = async (req, res) => {
 
     await newBusiness.save();
 
-    // Promueve rol si era "user"
     if (user.role === "user") {
       user.role = "business_owner";
       await user.save();
@@ -247,7 +268,7 @@ export const createBusiness = async (req, res) => {
   }
 };
 
-// ---------- Listado ----------
+/* ───────── Listado ───────── */
 export const getAllBusinesses = async (req, res) => {
   try {
     const { lat, lng, page = 1, limit = 15 } = req.query;
@@ -306,7 +327,7 @@ export const getAllBusinesses = async (req, res) => {
   }
 };
 
-// ---------- Detail ----------
+/* ───────── Detail ───────── */
 export const getBusinessById = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id).populate(
@@ -329,9 +350,22 @@ export const getBusinessById = async (req, res) => {
   }
 };
 
-// ---------- Update ----------
+/* ───────── Update (galería mixta con límite 5) ───────── */
 export const updateBusiness = async (req, res) => {
   try {
+    // Logs de entrada
+    console.log("🧩 BODY KEYS:", Object.keys(req.body || {}));
+    console.log("🧩 FILES KEYS:", Object.keys(req.files || {}));
+    console.log(
+      "🧪 imageProcessor.body.featuredImage:",
+      req.body?.featuredImage
+    );
+    console.log("🧪 imageProcessor.body.profileImage:", req.body?.profileImage);
+    console.log(
+      "🧪 imageProcessor.body.images count:",
+      Array.isArray(req.body?.images) ? req.body.images.length : 0
+    );
+
     let {
       name,
       description,
@@ -349,6 +383,7 @@ export const updateBusiness = async (req, res) => {
       isDeliveryOnly,
       primaryZip,
       serviceAreaZips,
+      existingImages, // set final de la UI (puede venir como string JSON)
     } = req.body;
 
     // Parse/normalize
@@ -360,16 +395,25 @@ export const updateBusiness = async (req, res) => {
     images = parseJSONField(images, undefined);
     serviceAreaZips = parseJSONField(serviceAreaZips, undefined);
 
+    const existingProvided = Object.prototype.hasOwnProperty.call(
+      req.body,
+      "existingImages"
+    );
+    // Log clave: ¿vino existingImages del front?
+    console.log("raw existingImages body:", req.body.existingImages);
+    console.log("existingProvided:", existingProvided);
+
     const business = await Business.findById(req.params.id);
     if (!business)
       return res.status(404).json({ msg: "Negocio no encontrado." });
 
     const isOwner = business.owner.toString() === req.user.id;
     const isAdmin = req.user.role === "admin";
-    if (!isOwner && !isAdmin)
+    if (!isOwner && !isAdmin) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para actualizar este negocio." });
+    }
 
     if (owner && owner !== business.owner.toString()) {
       return res
@@ -380,14 +424,7 @@ export const updateBusiness = async (req, res) => {
     // LIMPIEZA: evita coordinates: []
     if (location) stripEmptyCoordinates({ location });
 
-    // GEO RULES:
-    // - Si explicitamente pasa a delivery-only (isDeliveryOnly === true) → geocode ZIP (obligatorio).
-    // - Si explicitamente deja de ser delivery-only (isDeliveryOnly === false):
-    //     - Si llega dirección completa → geocode address
-    //     - Si no llega dirección completa → NO tocar location (preservar)
-    // - Si no manda isDeliveryOnly (indefinido):
-    //     - Si manda location con dirección completa → geocode address
-    //     - Si no, NO tocar location
+    // GEO RULES
     let locationPrecision = business.locationPrecision;
 
     if (isDeliveryOnly === true) {
@@ -414,7 +451,6 @@ export const updateBusiness = async (req, res) => {
       };
       locationPrecision = "zipcode";
     } else if (isDeliveryOnly === false) {
-      // Deja de ser delivery-only → requiere dirección para recalcular
       const hasAddress = Boolean(
         location?.address && location?.city && location?.state
       );
@@ -432,8 +468,7 @@ export const updateBusiness = async (req, res) => {
                 );
           location.coordinates = buildGeoJSON(base);
           locationPrecision = "address";
-        } catch (err) {
-          console.error("❌ Error al geocodificar:", err);
+        } catch {
           const fb = await coordsFromCommunityOrDallas(
             community || business.community
           );
@@ -441,11 +476,9 @@ export const updateBusiness = async (req, res) => {
           locationPrecision = "address";
         }
       } else {
-        // No hay dirección → no tocar location
         location = undefined;
       }
     } else if (location?.address && location?.city && location?.state) {
-      // Update normal (sin cambiar delivery-only) pero envía dirección → recalcular
       const fullAddress = `${location.address}, ${location.city}, ${
         location.state
       }, ${location.country || "USA"}`;
@@ -459,8 +492,7 @@ export const updateBusiness = async (req, res) => {
               );
         location.coordinates = buildGeoJSON(base);
         locationPrecision = "address";
-      } catch (err) {
-        console.error("❌ Error al geocodificar:", err);
+      } catch {
         const fb = await coordsFromCommunityOrDallas(
           community || business.community
         );
@@ -468,32 +500,70 @@ export const updateBusiness = async (req, res) => {
         locationPrecision = "address";
       }
     } else {
-      // Sin cambios relevantes para ubicación → no tocar location
       location = undefined;
     }
 
-    // IMÁGENES: mantener si no se envían
-    const resolvedFeatured =
-      req.body.featuredImage ||
-      req.body.featuredImageUrl ||
-      business.featuredImage;
-    const resolvedProfile =
-      req.body.profileImage ||
-      req.body.profileImageUrl ||
-      business.profileImage;
-    let resolvedImages = Array.isArray(business.images)
-      ? [...business.images]
-      : [];
+    /* ---------- IMÁGENES ---------- */
+    const prevFeatured = business.featuredImage;
+    const prevProfile = business.profileImage;
+    const prevGallery = Array.isArray(business.images) ? business.images : [];
 
-    if (req.body.existingImages) {
-      const keep = parseJSONField(req.body.existingImages, business.images);
-      if (Array.isArray(keep)) resolvedImages = keep;
-    }
-    if (Array.isArray(req.body.images) && req.body.images.length) {
-      resolvedImages = [...resolvedImages, ...req.body.images];
+    // Portada (si vino una nueva por file, imageProcessor ya puso URL)
+    let nextFeatured = prevFeatured;
+    if (typeof featuredImage === "string" && featuredImage.trim()) {
+      nextFeatured = featuredImage.trim();
     }
 
-    // Asignación segura (solo sobreescribe si llegó algo)
+    // Perfil
+    let nextProfile = prevProfile;
+    if (typeof profileImage === "string" && profileImage.trim()) {
+      nextProfile = profileImage.trim();
+    }
+
+    // existingImages: respeta si vino (aunque sea "[]"); si no vino, no tocar galería
+    existingImages = parseJSONField(
+      existingImages,
+      existingProvided ? [] : undefined
+    );
+
+    const MAX_GALLERY = 5;
+
+    // Set final que dejó el usuario en UI
+    const keepInput = Array.isArray(existingImages)
+      ? existingImages
+      : prevGallery;
+
+    // URLs nuevas agregadas por imageProcessor en ESTA request
+    const newUrls = Array.isArray(images) ? images : [];
+
+    // Normaliza keep
+    const seen = new Set();
+    const keep = [];
+    for (const u of keepInput) {
+      if (typeof u === "string" && u && !seen.has(u)) {
+        seen.add(u);
+        keep.push(u);
+      }
+    }
+
+    // Cupos y resultado final (máx 5)
+    const slots = Math.max(0, MAX_GALLERY - keep.length);
+    const acceptedNew = newUrls.slice(0, slots);
+    const overflowNew = newUrls.slice(slots);
+    const nextGallery = [...keep, ...acceptedNew];
+
+    // Logs de galería (antes de asignar)
+    console.log("prevGallery:", prevGallery.length, prevGallery);
+    console.log("keepInput (existingImages):", keep.length, keep);
+    console.log("newUrls (subidas):", newUrls.length, newUrls);
+    console.log("nextGallery:", nextGallery.length, nextGallery);
+    console.log(
+      "overflowNew (no entran por tope):",
+      overflowNew.length,
+      overflowNew
+    );
+
+    // Asignación y guardado
     if (name !== undefined) business.name = name;
     if (description !== undefined) business.description = description;
     if (categories && categories.length) business.categories = categories;
@@ -502,38 +572,114 @@ export const updateBusiness = async (req, res) => {
     if (openingHours !== undefined) business.openingHours = openingHours;
     if (tags !== undefined) business.tags = tags;
     if (typeof isVerified === "boolean") business.isVerified = isVerified;
-    if (resolvedFeatured !== undefined)
-      business.featuredImage = resolvedFeatured;
-    if (resolvedProfile !== undefined) business.profileImage = resolvedProfile;
-    if (resolvedImages !== undefined) business.images = resolvedImages;
     if (typeof isDeliveryOnly === "boolean")
       business.isDeliveryOnly = isDeliveryOnly;
     if (typeof primaryZip === "string") business.primaryZip = primaryZip;
     if (Array.isArray(serviceAreaZips))
       business.serviceAreaZips = serviceAreaZips;
     if (location) business.location = location;
+    if (typeof nextFeatured === "string") business.featuredImage = nextFeatured;
+    if (typeof nextProfile === "string") business.profileImage = nextProfile;
+    business.images = nextGallery;
     business.locationPrecision = locationPrecision;
 
     await business.save();
 
-    // Notificar a seguidores
-    const followers = await Follow.find({
-      entityType: "business",
-      entityId: business._id,
-    });
-    if (followers.length > 0) {
-      const notifications = followers.map((f) => ({
-        user: f.user,
-        actionType: "business_updated",
-        entityType: "business",
-        entityId: business._id,
-        message: `El negocio "${business.name}" actualizó su información.`,
-        link: `/negocios/${business._id}`,
-        read: false,
-      }));
-      await Notification.insertMany(notifications);
+    /* ---------- BORRADOS EN CLOUDINARY (best-effort) ---------- */
+    const uploadedByFile = req._uploadedByFile || {};
+    const uploadedPublicIds = req._uploadedPublicIds || { gallery: [] };
+
+    // 1) Portada: borra anterior si reemplazada y nueva vino por FILE
+    if (
+      nextFeatured !== prevFeatured &&
+      uploadedByFile.featuredImage &&
+      prevFeatured &&
+      isCloudinaryUrl(prevFeatured)
+    ) {
+      const pid = getCloudinaryPublicId(prevFeatured);
+      console.log("🧹 Borrar featured anterior:", pid);
+      if (pid) {
+        cloudinary.uploader
+          .destroy(pid)
+          .catch((e) =>
+            console.warn(
+              "⚠️ No se pudo borrar featured anterior:",
+              pid,
+              e?.message
+            )
+          );
+      }
     }
 
+    // 2) Perfil
+    if (
+      nextProfile !== prevProfile &&
+      uploadedByFile.profileImage &&
+      prevProfile &&
+      isCloudinaryUrl(prevProfile)
+    ) {
+      const pid = getCloudinaryPublicId(prevProfile);
+      console.log("🧹 Borrar profile anterior:", pid);
+      if (pid) {
+        cloudinary.uploader
+          .destroy(pid)
+          .catch((e) =>
+            console.warn(
+              "⚠️ No se pudo borrar profile anterior:",
+              pid,
+              e?.message
+            )
+          );
+      }
+    }
+
+    // 3a) Galería: borra viejas removidas (prev - keep)
+    const removedOld = prevGallery.filter((url) => !keep.includes(url));
+    const removedOldPids = removedOld
+      .filter(isCloudinaryUrl)
+      .map(getCloudinaryPublicId)
+      .filter(Boolean);
+
+    console.log("removedOld:", removedOld.length, removedOld);
+    console.log("removedOldPids:", removedOldPids);
+
+    if (removedOldPids.length) {
+      cloudinary.api
+        .delete_resources(removedOldPids)
+        .catch((e) =>
+          console.warn(
+            "⚠️ No se pudieron borrar imágenes removidas (old):",
+            e?.message
+          )
+        );
+    }
+
+    // 3b) Overflow de nuevas (si subiste y no entraron por tope)
+    if (
+      Array.isArray(uploadedPublicIds.gallery) &&
+      uploadedPublicIds.gallery.length
+    ) {
+      console.log("uploadedPublicIds.gallery:", uploadedPublicIds.gallery);
+      const overflowPids = uploadedPublicIds.gallery
+        .filter((item) => overflowNew.includes(item.url))
+        .map((item) => item.public_id)
+        .filter(Boolean);
+
+      console.log("overflowPids:", overflowPids);
+
+      if (overflowPids.length) {
+        cloudinary.api
+          .delete_resources(overflowPids)
+          .catch((e) =>
+            console.warn(
+              "⚠️ No se pudieron borrar imágenes overflow (nuevas):",
+              e?.message
+            )
+          );
+      }
+    }
+
+    // Respuesta poblada
     const populated = await Business.findById(business._id).populate(
       "categories  community owner"
     );
@@ -546,7 +692,7 @@ export const updateBusiness = async (req, res) => {
   }
 };
 
-// ---------- Delete ----------
+/* ───────── Delete ───────── */
 export const deleteBusiness = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id);
@@ -561,6 +707,32 @@ export const deleteBusiness = async (req, res) => {
         .json({ msg: "No tienes permisos para eliminar este negocio." });
     }
 
+    // Intenta borrar recursos en Cloudinary (best-effort)
+    const toDelete = [];
+    if (business.featuredImage && isCloudinaryUrl(business.featuredImage)) {
+      const pid = getCloudinaryPublicId(business.featuredImage);
+      if (pid) toDelete.push(pid);
+    }
+    if (business.profileImage && isCloudinaryUrl(business.profileImage)) {
+      const pid = getCloudinaryPublicId(business.profileImage);
+      if (pid) toDelete.push(pid);
+    }
+    if (Array.isArray(business.images)) {
+      business.images.forEach((url) => {
+        if (isCloudinaryUrl(url)) {
+          const pid = getCloudinaryPublicId(url);
+          if (pid) toDelete.push(pid);
+        }
+      });
+    }
+    if (toDelete.length) {
+      cloudinary.api
+        .delete_resources(toDelete)
+        .catch((e) =>
+          console.warn("⚠️ No se pudieron borrar recursos:", e?.message)
+        );
+    }
+
     await business.deleteOne();
     res.status(200).json({ msg: "Negocio eliminado exitosamente." });
   } catch (error) {
@@ -569,7 +741,7 @@ export const deleteBusiness = async (req, res) => {
   }
 };
 
-// ---------- Mine ----------
+/* ───────── Mine ───────── */
 export const getMyBusinesses = async (req, res) => {
   try {
     const businesses = await Business.find({ owner: req.user.id }).populate(
@@ -582,7 +754,7 @@ export const getMyBusinesses = async (req, res) => {
   }
 };
 
-// ---------- Promotions by Business ----------
+/* ───────── Promotions by Business ───────── */
 export const getPromotionsByBusiness = async (req, res) => {
   try {
     const negocio = await Business.findById(req.params.id)
@@ -604,7 +776,7 @@ export const getPromotionsByBusiness = async (req, res) => {
   }
 };
 
-// ---------- Toggle Like ----------
+/* ───────── Toggle Like ───────── */
 export const toggleLikeBusiness = async (req, res) => {
   try {
     const business = await Business.findById(req.params.id);
@@ -614,19 +786,24 @@ export const toggleLikeBusiness = async (req, res) => {
     const userId = req.user._id.toString();
     const index = business.likes.findIndex((id) => id.toString() === userId);
 
-    if (index === -1) business.likes.push(userId);
-    else business.likes.splice(index, 1);
+    let liked;
+    if (index === -1) {
+      business.likes.push(userId);
+      liked = true;
+    } else {
+      business.likes.splice(index, 1);
+      liked = false;
+    }
 
     await business.save();
-
-    res.json({ likesCount: business.likes.length, liked: index === -1 });
+    res.json({ likesCount: business.likes.length, liked });
   } catch (error) {
     console.error("❌ Error en toggleLikeBusiness:", error);
     res.status(500).json({ error: "Error al procesar el me gusta" });
   }
 };
 
-// ---------- By Community (geo within) ----------
+/* ───────── By Community (geo within) ───────── */
 export const getBusinessesByCommunity = async (req, res) => {
   try {
     const { lat, lng } = req.query;
@@ -663,24 +840,19 @@ export const getBusinessesByCommunity = async (req, res) => {
   }
 };
 
-// ---------- Map by Community ----------
+/* ───────── Map by Community ───────── */
 export const getBusinessesForMapByCommunity = async (req, res) => {
   try {
     const { communityId } = req.params;
     const { lat, lng } = req.query;
 
-    console.log("🌐 communityId:", communityId);
-    console.log("📍 lat:", lat, "lng:", lng);
-
     if (!communityId || !lat || !lng) {
-      console.warn("⚠️ Faltan parámetros requeridos");
       return res.status(400).json({ msg: "Faltan parámetros requeridos." });
     }
 
     const parsedLat = parseFloat(lat);
     const parsedLng = parseFloat(lng);
     if (isNaN(parsedLat) || isNaN(parsedLng)) {
-      console.warn("⚠️ Coordenadas inválidas:", { parsedLat, parsedLng });
       return res.status(400).json({ msg: "Coordenadas inválidas." });
     }
 
@@ -697,15 +869,11 @@ export const getBusinessesForMapByCommunity = async (req, res) => {
       },
     };
 
-    console.log("🧪 Query:", JSON.stringify(query, null, 2));
-
     const businesses = await Business.find(query)
       .select(
         "_id name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
       )
       .populate({ path: "categories", select: "name" });
-
-    console.log("✅ Negocios encontrados:", businesses.length);
 
     res.status(200).json({ businesses });
   } catch (error) {
