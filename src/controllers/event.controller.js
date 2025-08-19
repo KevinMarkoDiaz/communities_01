@@ -10,6 +10,16 @@ import Comment from "../models/comment.model.js";
 import Community from "../models/community.model.js";
 import { v2 as cloudinary } from "cloudinary"; // 👈 NUEVO
 
+// 🎛️ Config de orden
+const PREMIUM_BOOST = Number(process.env.PREMIUM_BOOST ?? 0.08);
+const EVENT_UPCOMING_BOOST = Number(process.env.EVENT_UP_BOOST ?? 0.3);
+const EVENT_PAST_PENALTY = Number(process.env.EVENT_PAST_PEN ?? -0.75);
+
+// Default: próximos primero, aleatorio dentro; puedes cambiar a "random"
+const EVT_DEFAULT_ORDER = (
+  process.env.EVT_DEFAULT_ORDER || "random_upfirst"
+).toLowerCase();
+
 // 🧠 Limpia links vacíos
 const cleanLink = (val) =>
   typeof val === "string" && val.trim() === "" ? undefined : val;
@@ -267,24 +277,239 @@ export const createEvent = async (req, res) => {
 
 export const getAllEvents = async (req, res) => {
   try {
-    const { lat, lng, page = 1, limit = 15 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const parsedLimit = parseInt(limit);
+    // 🔒 Anti-cache
+    res.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
 
-    let query = {};
+    const { lat, lng, page = 1, limit = 15, order, debug } = req.query;
+    const pg = Math.max(parseInt(page, 10) || 1, 1);
+    const lim = Math.min(parseInt(limit, 10) || 15, 100);
+    const skip = (pg - 1) * lim;
+
+    const PREMIUM_BOOST = Number(process.env.PREMIUM_BOOST ?? 0.08);
+    const EVENT_UPCOMING_BOOST = Number(process.env.EVENT_UP_BOOST ?? 0.3);
+    const EVENT_PAST_PENALTY = Number(process.env.EVENT_PAST_PEN ?? -0.75);
+    const EVT_DEFAULT_ORDER = (
+      process.env.EVT_DEFAULT_ORDER || "random_upfirst"
+    ).toLowerCase();
+
+    const mode = String(order || EVT_DEFAULT_ORDER).toLowerCase();
     const radiusInMiles = 80;
     const radiusInRadians = radiusInMiles / 3963.2;
 
+    const match = {};
     if (lat && lng) {
-      query["coordinates"] = {
+      match["coordinates"] = {
         $geoWithin: {
           $centerSphere: [[parseFloat(lng), parseFloat(lat)], radiusInRadians],
         },
       };
     }
 
-    const total = await Event.countDocuments(query);
-    const events = await Event.find(query)
+    console.log("[getAllEvents]", {
+      mode,
+      page: pg,
+      limit: lim,
+      hasLatLng: Boolean(lat && lng),
+      time: new Date().toISOString(),
+    });
+
+    const total = await Event.countDocuments(match);
+    const now = new Date();
+
+    // A) Mezcla suave (bonus a próximos; penaliza pasados)
+    if (mode === "random") {
+      const items = await Event.aggregate([
+        { $match: match },
+        {
+          $addFields: {
+            _startAt: {
+              $cond: [
+                { $eq: [{ $type: "$date" }, "date"] },
+                "$date",
+                {
+                  $dateFromString: {
+                    dateString: "$date",
+                    onError: null,
+                    onNull: null,
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          $addFields: {
+            _isUpcoming: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: ["$_startAt", null] },
+                    { $gte: ["$_startAt", now] },
+                  ],
+                },
+                true,
+                false,
+              ],
+            },
+          },
+        },
+        {
+          $addFields: {
+            ...(debug === "1"
+              ? { _r1: { $rand: {} }, _r2: { $rand: {} } }
+              : {}),
+            _score: {
+              $add: [
+                { $rand: {} },
+                { $divide: [{ $rand: {} }, 2] },
+                { $cond: ["$isPremium", PREMIUM_BOOST, 0] },
+                {
+                  $cond: [
+                    "$_isUpcoming",
+                    EVENT_UPCOMING_BOOST,
+                    EVENT_PAST_PENALTY,
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        // 👇 project válido (solo si hay debug; si no, lo omitimos)
+        ...(debug === "1"
+          ? [
+              {
+                $project: {
+                  _r1: 1,
+                  _r2: 1,
+                  _score: 1,
+                  title: 1,
+                  date: 1,
+                  isPremium: 1,
+                },
+              },
+            ]
+          : []),
+        { $sort: { _score: -1, _id: 1 } },
+        { $skip: skip },
+        { $limit: lim },
+      ]);
+
+      const events = await Event.populate(items, [
+        { path: "communities", select: "name" },
+        { path: "businesses", select: "name" },
+        { path: "categories", select: "name" },
+        { path: "organizer", select: "name email" },
+        { path: "sponsors", select: "name" },
+        { path: "createdBy", select: "name" },
+      ]);
+
+      return res.status(200).json({
+        events,
+        total,
+        perPage: lim,
+        page: pg,
+        totalPages: Math.ceil(total / lim),
+      });
+    }
+
+    // B) DEFAULT: Próximos SIEMPRE primero; dentro de cada grupo, aleatorio + boost premium
+    if (mode === "random_upfirst") {
+      const items = await Event.aggregate([
+        { $match: match },
+        {
+          $addFields: {
+            _startAt: {
+              $cond: [
+                { $eq: [{ $type: "$date" }, "date"] },
+                "$date",
+                {
+                  $dateFromString: {
+                    dateString: "$date",
+                    onError: null,
+                    onNull: null,
+                  },
+                },
+              ],
+            },
+          },
+        },
+        // 0 = próximos (o sin fecha); 1 = pasados
+        {
+          $addFields: {
+            _group: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: ["$_startAt", null] },
+                    { $gte: ["$_startAt", now] },
+                  ],
+                },
+                0,
+                1,
+              ],
+            },
+          },
+        },
+        {
+          $addFields: {
+            ...(debug === "1"
+              ? { _r1: { $rand: {} }, _r2: { $rand: {} } }
+              : {}),
+            _score: {
+              $add: [
+                { $rand: {} },
+                { $divide: [{ $rand: {} }, 2] },
+                { $cond: ["$isPremium", PREMIUM_BOOST, 0] },
+              ],
+            },
+          },
+        },
+        // ❌ Nada de $project vacío. Si quieres ver debug, proyecta campos explícitos:
+        ...(debug === "1"
+          ? [
+              {
+                $project: {
+                  _group: 1,
+                  _score: 1,
+                  _r1: 1,
+                  _r2: 1,
+                  title: 1,
+                  date: 1,
+                  isPremium: 1,
+                },
+              },
+            ]
+          : []),
+        { $sort: { _group: 1, _score: -1, _id: 1 } },
+        { $skip: skip },
+        { $limit: lim },
+      ]);
+
+      const events = await Event.populate(items, [
+        { path: "communities", select: "name" },
+        { path: "businesses", select: "name" },
+        { path: "categories", select: "name" },
+        { path: "organizer", select: "name email" },
+        { path: "sponsors", select: "name" },
+        { path: "createdBy", select: "name" },
+      ]);
+
+      return res.status(200).json({
+        events,
+        total,
+        perPage: lim,
+        page: pg,
+        totalPages: Math.ceil(total / lim),
+      });
+    }
+
+    // 🧭 Camino normal (sin aleatorio)
+    const events = await Event.find(match)
       .populate("communities", "name")
       .populate("businesses", "name")
       .populate("categories", "name")
@@ -292,14 +517,14 @@ export const getAllEvents = async (req, res) => {
       .populate("sponsors", "name")
       .populate("createdBy", "name")
       .skip(skip)
-      .limit(parsedLimit);
+      .limit(lim);
 
     res.status(200).json({
       events,
       total,
-      perPage: parsedLimit,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parsedLimit),
+      perPage: lim,
+      page: pg,
+      totalPages: Math.ceil(total / lim),
     });
   } catch (error) {
     console.error("❌ Error en getAllEvents:", error);

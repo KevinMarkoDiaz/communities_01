@@ -4,49 +4,206 @@ const appUrl = process.env.FRONTEND_URL || "https://app.communidades.com";
 const from =
   process.env.EMAIL_FROM || "Communidades <no-reply@communidades.com>";
 
+// Defaults de marca (puedes moverlos a env o a una config central)
+const BRAND = {
+  name: "Communidades",
+  tagline: "Conecta con tu comunidad latina",
+  logoUrl: "https://dev.communidades.com/assets/icono-BU47RJ2L.svg", // pon aquí tu URL real del logo (PNG transparente ~200x48)
+  accentColor: "#fb923c", // naranja marca
+  textColor: "#111111",
+  bgColor: "#f6f7fb",
+  cardBg: "#ffffff",
+  footerText: "#6b7280",
+};
+
 export async function sendNewMessageEmail({
   to,
   recipientName,
   senderName,
   preview,
   conversationId,
+  brand = BRAND, // permite override por correo si quieres
+  unsubscribeUrl, // opcional: link para gestionar notificaciones
 }) {
-  const subject = `Nuevo mensaje de ${senderName} en Communidades`;
+  const subject = `Nuevo mensaje de ${senderName} en ${brand.name}`;
   const url = `${appUrl}/inbox/conversation/${conversationId}`;
 
+  const safePreview = escapeHtml(preview || "");
+  const preheader = `Tienes un nuevo mensaje de ${senderName}. Abre la conversación en ${brand.name}.`;
+
   const html = `
-  <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;color:#111">
-    <div style="max-width:560px;margin:24px auto;border:1px solid #eee;border-radius:12px;overflow:hidden">
-      <div style="background:#111;color:#fff;padding:20px 24px">
-        <strong>Communidades</strong>
-      </div>
-      <div style="padding:24px">
-        <p>Hola ${recipientName || ""},</p>
-        <p><strong>${senderName}</strong> te envió un mensaje:</p>
-        <blockquote style="margin:16px 0;padding:12px 16px;background:#f8f8f8;border-left:4px solid #fb923c">
-          ${escapeHtml(preview || "")}
-        </blockquote>
-        <a href="${url}" style="display:inline-block;padding:12px 16px;background:#fb923c;color:#111;text-decoration:none;border-radius:10px;font-weight:600">
-          Abrir conversación
-        </a>
-        <p style="font-size:12px;color:#666;margin-top:20px">
-          Si no quieres recibir estos correos, desactiva las notificaciones por email en tu perfil.
-        </p>
-      </div>
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(subject)}</title>
+    <style>
+      /* Resets */
+      body,table,td,a { -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }
+      table,td { mso-table-lspace:0pt; mso-table-rspace:0pt; }
+      img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }
+      table { border-collapse:collapse !important; }
+      body { margin:0 !important; padding:0 !important; width:100% !important; background:${
+        brand.bgColor
+      }; }
+      /* Mobile */
+      @media screen and (max-width: 600px) { .container { width:100% !important; } .px-24 { padding-left:16px !important; padding-right:16px !important; } .py-24 { padding-top:16px !important; padding-bottom:16px !important; } .btn { width:100% !important; } }
+      /* Dark mode (soporte parcial) */
+      @media (prefers-color-scheme: dark) {
+        body { background:#0b0b0b !important; }
+        .card { background:#111111 !important; }
+        .text { color:#e5e7eb !important; }
+        .muted { color:#9ca3af !important; }
+        .brandbar { background:#111111 !important; color:#ffffff !important; }
+      }
+      /* Safe fonts */
+      .text, .muted { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height:1.6; }
+    </style>
+  </head>
+  <body style="background:${brand.bgColor};">
+    <!-- Preheader (oculto en el cuerpo pero visible en inbox) -->
+    <div style="display:none; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">
+      ${escapeHtml(preheader)}
     </div>
-  </div>`;
 
-  const text = `Nuevo mensaje de ${senderName}:\n\n"${(preview || "").slice(
-    0,
-    200
-  )}"\n\nAbrir conversación: ${url}`;
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" class="px-24" style="padding:24px;">
+          <!-- Contenedor -->
+          <table role="presentation" width="560" class="container" cellpadding="0" cellspacing="0" style="width:560px; max-width:560px;">
+            <!-- Brand bar -->
+            <tr>
+              <td class="brandbar" style="background:#111111; color:#ffffff; padding:18px 20px; border-radius:12px 12px 0 0;">
+                <table role="presentation" width="100%">
+                  <tr>
+                    <td align="left">
+                      <img src="${brand.logoUrl}" alt="${escapeHtml(
+    brand.name
+  )}" height="28" style="display:block; height:28px;">
+                    </td>
+                    <td align="right" class="muted" style="font-size:12px; color:#e5e7eb;">
+                      ${escapeHtml(brand.tagline)}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-  return transporter.sendMail({ from, to, subject, text, html });
+            <!-- Card -->
+            <tr>
+              <td class="card px-24 py-24" style="background:${
+                brand.cardBg
+              }; padding:24px; border:1px solid #e5e7eb; border-top:0; border-radius:0 0 12px 12px;">
+                <div class="text" style="color:${
+                  brand.textColor
+                }; font-size:16px;">
+                  <p style="margin:0 0 12px 0;">Hola ${escapeHtml(
+                    recipientName || ""
+                  )},</p>
+                  <p style="margin:0 0 16px 0;">
+                    <strong>${escapeHtml(
+                      senderName || "Alguien"
+                    )}</strong> te envió un mensaje en <strong>${escapeHtml(
+    brand.name
+  )}</strong>:
+                  </p>
+                  <blockquote style="margin:12px 0 20px 0; padding:12px 16px; background:#f8f8f8; border-left:4px solid ${
+                    brand.accentColor
+                  }; border-radius:8px;">
+                    ${safePreview || "<em>(sin contenido)</em>"}
+                  </blockquote>
+
+                  <!-- Botón (bulletproof) -->
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="left" class="btn" style="margin:0 0 8px 0;">
+                    <tr>
+                      <td align="center" bgcolor="${
+                        brand.accentColor
+                      }" style="border-radius:10px;">
+                        <a href="${url}" target="_blank"
+                           style="display:inline-block; padding:12px 18px; font-weight:700; text-decoration:none; border-radius:10px; color:#111111;">
+                           Abrir conversación
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <p class="muted" style="margin:16px 0 0 0; font-size:12px; color:#666;">
+                    Consejo: responde pronto para mantener el hilo activo y mejorar la visibilidad de tu perfil.
+                  </p>
+
+                  <hr style="border:none; border-top:1px solid #eee; margin:24px 0;">
+
+                  <p class="muted" style="margin:0 0 6px 0; font-size:12px; color:${
+                    brand.footerText
+                  };">
+                    Este correo se envió a solicitud de una actividad en tu cuenta.
+                  </p>
+                  ${
+                    unsubscribeUrl
+                      ? `<p class="muted" style="margin:0; font-size:12px; color:${brand.footerText};">
+                           <a href="${unsubscribeUrl}" style="color:${brand.footerText}; text-decoration:underline;">Gestionar notificaciones por email</a>
+                         </p>`
+                      : `<p class="muted" style="margin:0; font-size:12px; color:${brand.footerText};">
+                           Para ajustar tus notificaciones por email, ve a <strong>Perfil &gt; Notificaciones</strong>.
+                         </p>`
+                  }
+                </div>
+              </td>
+            </tr>
+
+            <!-- Footer legal -->
+            <tr>
+              <td align="center" style="padding:14px 8px;">
+                <p class="muted" style="margin:0; font-size:11px; color:${
+                  brand.footerText
+                };">
+                  © ${new Date().getFullYear()} ${escapeHtml(
+    brand.name
+  )}. Todos los derechos reservados.
+                </p>
+                <p class="muted" style="margin:4px 0 0 0; font-size:11px; color:${
+                  brand.footerText
+                };">
+                  Si no fuiste tú, ignora este correo.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  const text = [
+    `Hola ${recipientName || ""},`,
+    ``,
+    `${senderName || "Alguien"} te envió un mensaje en ${brand.name}:`,
+    `"${(preview || "").slice(0, 200)}"`,
+    ``,
+    `Abrir conversación: ${url}`,
+    ``,
+    unsubscribeUrl
+      ? `Gestionar notificaciones: ${unsubscribeUrl}`
+      : `Ajusta tus notificaciones en Perfil > Notificaciones`,
+    ``,
+    `© ${new Date().getFullYear()} ${brand.name}.`,
+  ].join("\n");
+
+  return transporter.sendMail({
+    from,
+    to,
+    subject,
+    text,
+    html,
+  });
 }
 
 // util mínima para no inyectar HTML
 function escapeHtml(s = "") {
-  return s
+  return String(s)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")

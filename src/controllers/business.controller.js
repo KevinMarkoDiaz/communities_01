@@ -9,6 +9,12 @@ import { v2 as cloudinary } from "cloudinary";
 
 import { geocodeAddress } from "../utils/geocode.js";
 import { geocodeZipCentroid } from "../utils/geocodeZip.js";
+// 🎛️ Config de orden aleatorio
+const PREMIUM_BOOST = Number(process.env.PREMIUM_BOOST ?? 0.08);
+const DEFAULT_ORDER = (
+  process.env.BIZ_DEFAULT_ORDER || "random_pfirst"
+).toLowerCase();
+const MAX_PREMIUM_PER_PAGE = Number(process.env.BIZ_MAX_PREMIUM_PER_PAGE ?? 2);
 
 /* ───────── Cloudinary helpers ───────── */
 function isCloudinaryUrl(url = "") {
@@ -269,61 +275,136 @@ export const createBusiness = async (req, res) => {
 };
 
 /* ───────── Listado ───────── */
+
 export const getAllBusinesses = async (req, res) => {
   try {
-    const { lat, lng, page = 1, limit = 15 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { lat, lng, page = 1, limit = 15, order } = req.query;
+    const pg = Math.max(parseInt(page, 10) || 1, 1);
+    const lim = Math.min(parseInt(limit, 10) || 15, 100);
+    const skip = (pg - 1) * lim;
+    const mode = String(order || DEFAULT_ORDER).toLowerCase();
 
-    if (!lat || !lng) {
-      const [businesses, total] = await Promise.all([
-        Business.find({})
-          .populate("categories community owner")
-          .sort({ createdAt: -1 })
-          .limit(parseInt(limit))
-          .skip(skip),
-        Business.countDocuments({}),
-      ]);
-      return res.status(200).json({
-        businesses,
-        total,
-        perPage: parseInt(limit),
-        page: parseInt(page),
-        totalPages: Math.ceil(total / parseInt(limit)),
-      });
-    }
-
-    const parsedLat = parseFloat(lat);
-    const parsedLng = parseFloat(lng);
-    const radiusInMiles = 80;
-    const earthRadiusInMiles = 3963.2;
-    const radiusInRadians = radiusInMiles / earthRadiusInMiles;
-
-    const query = {
-      "location.coordinates": {
+    // MATCH (geo opcional)
+    const match = {};
+    if (lat && lng) {
+      const parsedLat = parseFloat(lat);
+      const parsedLng = parseFloat(lng);
+      const radiusInMiles = 80;
+      const earthRadiusInMiles = 3963.2;
+      const radiusInRadians = radiusInMiles / earthRadiusInMiles;
+      match["location.coordinates"] = {
         $geoWithin: {
           $centerSphere: [[parsedLng, parsedLat], radiusInRadians],
         },
-      },
+      };
+    }
+
+    // Conteo total (para paginación)
+    const total = await Business.countDocuments(match);
+
+    // Helpers para traer "bloques" barajados
+    const fetchChunk = async (isPrem, sk, limi) => {
+      if (limi <= 0) return [];
+      const m = {
+        ...match,
+        ...(isPrem ? { isPremium: true } : { isPremium: { $ne: true } }),
+      };
+      return Business.aggregate([
+        { $match: m },
+        { $addFields: { _r: { $rand: {} } } },
+        { $sort: { _r: 1, _id: 1 } },
+        { $skip: Math.max(sk, 0) },
+        { $limit: limi },
+      ]);
     };
 
-    const [businesses, total] = await Promise.all([
-      Business.find(query)
-        .populate("categories community owner")
-        .limit(parseInt(limit))
-        .skip(skip),
-      Business.countDocuments(query),
+    // Lógica de mezcla con tope premium por página
+    const capPrem = Math.min(MAX_PREMIUM_PER_PAGE, lim);
+    const baseNonNeed = lim - capPrem;
+
+    // Skips "estratificados" por página
+    const premSkip = (pg - 1) * capPrem;
+    const nonSkip = (pg - 1) * baseNonNeed;
+
+    // 1) Traer bloques iniciales
+    let prem = await fetchChunk(true, premSkip, capPrem);
+    let non = await fetchChunk(false, nonSkip, baseNonNeed);
+
+    // 2) Rellenos si faltan piezas
+    // Si faltan premium, intenta compensar con no-premium extra
+    if (prem.length < capPrem) {
+      const need = Math.min(
+        capPrem - prem.length,
+        lim - (prem.length + non.length)
+      );
+      if (need > 0) {
+        const extraNon = await fetchChunk(false, nonSkip + non.length, need);
+        non = non.concat(extraNon);
+      }
+    }
+    // Si faltan no-premium, intenta traer no-premium extra (no subimos premium por el tope "máximo")
+    if (non.length < baseNonNeed) {
+      const need = baseNonNeed - non.length;
+      if (need > 0) {
+        const extraNon = await fetchChunk(false, nonSkip + non.length, need);
+        non = non.concat(extraNon);
+      }
+    }
+
+    // 3) Combinar según modo
+    let merged;
+    if (mode === "random_pfirst") {
+      // Premium primero (aleatorios entre sí) pero máximo capPrem; luego no-premium
+      merged = prem.concat(non).slice(0, lim);
+    } else {
+      // "random": mezcla por score (aleatorio + boost leve a premium), respetando tope
+      const pool = prem.concat(non);
+      pool.sort((a, b) => {
+        const sa = (a._r || 0) + (a.isPremium ? PREMIUM_BOOST : 0);
+        const sb = (b._r || 0) + (b.isPremium ? PREMIUM_BOOST : 0);
+        if (sb !== sa) return sb - sa;
+        return String(a._id).localeCompare(String(b._id));
+      });
+      const out = [];
+      let usedPrem = 0;
+      for (const doc of pool) {
+        if (out.length >= lim) break;
+        if (doc.isPremium) {
+          if (usedPrem >= capPrem) continue; // respeta tope
+          usedPrem++;
+        }
+        out.push(doc);
+      }
+      // Si aún falta llenar (muy raro), intenta no-premium extra
+      if (out.length < lim) {
+        const extra = await fetchChunk(
+          false,
+          nonSkip + non.length,
+          lim - out.length
+        );
+        merged = out.concat(extra).slice(0, lim);
+      } else {
+        merged = out;
+      }
+    }
+
+    // 4) Populate y respuesta
+    const businesses = await Business.populate(merged, [
+      { path: "categories", select: "name" },
+      { path: "community" },
+      { path: "owner" },
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       businesses,
       total,
-      perPage: parseInt(limit),
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit)),
+      perPage: lim,
+      page: pg,
+      totalPages: Math.ceil(total / lim),
     });
   } catch (error) {
     console.error("❌ Error en getAllBusinesses:", error);
-    res.status(500).json({ msg: "Error al obtener negocios cercanos." });
+    res.status(500).json({ msg: "Error al obtener negocios." });
   }
 };
 

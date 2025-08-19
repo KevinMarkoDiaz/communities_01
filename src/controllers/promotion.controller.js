@@ -7,6 +7,31 @@ import Notification from "../models/Notification.model.js";
 import { promotionSchema } from "../schemas/promotionSchema.js";
 import { zodErrorToResponse } from "../utils/zodErrorToResponse.js";
 
+const PREMIUM_BOOST = Number(process.env.PREMIUM_BOOST ?? 0.08);
+const PROM_ACTIVE_BOOST = Number(process.env.PROM_ACTIVE_BOOST ?? 0.25);
+const PRM_DEFAULT_ORDER = (
+  process.env.PRM_DEFAULT_ORDER || "random_activefirst"
+).toLowerCase();
+
+// Hash determinístico (FNV-1a) en Node
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+function seededRand(id, seed) {
+  const h = fnv1a(String(id) + ":" + String(seed));
+  return h / 4294967295; // [0,1]
+}
+function isActivePromo(p, now) {
+  const s = p.startDate ? new Date(p.startDate) : null;
+  const e = p.endDate ? new Date(p.endDate) : null;
+  return (!s || s <= now) && (!e || e >= now);
+}
+
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 // Helper para calcular "remaining"
@@ -21,27 +46,106 @@ const remainingOf = (p) =>
  */
 export const getPromotions = async (req, res) => {
   try {
-    const { community, category, type, business } = req.query;
-    const filter = {};
+    // anti-cache para evitar 304 mientras pruebas
+    res.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
 
+    const {
+      community,
+      category,
+      type,
+      business,
+      page = 1,
+      limit = 20,
+      order,
+      seed: seedFromClient,
+    } = req.query;
+    const pg = Math.max(parseInt(page, 10) || 1, 1);
+    const lim = Math.min(parseInt(limit, 10) || 20, 100);
+    const skip = (pg - 1) * lim;
+    const mode = String(order || PRM_DEFAULT_ORDER).toLowerCase();
+    const now = new Date();
+
+    const filter = {};
     if (community) filter.community = community;
     if (category) filter.category = category;
     if (type) filter.type = type;
     if (business) filter.business = business;
 
-    const promos = await Promotion.find(filter)
+    // seed estable: si el cliente no manda una, la generamos y devolvemos
+    const generatedSeed = `${Date.now()}_${Math.floor(Math.random() * 1e9)}`;
+    const seed = String(seedFromClient || generatedSeed);
+
+    // 1) Traemos SOLO lo mínimo para ordenar (sin populate)
+    const light = await Promotion.find(filter)
+      .select("_id isPremium startDate endDate")
+      .lean();
+
+    // total para paginación
+    const total = light.length;
+
+    // 2) Calculamos score determinístico en Node y ordenamos
+    const scored = light.map((p) => {
+      const active = isActivePromo(p, now);
+      const r = seededRand(p._id, seed);
+      let group = 0;
+      let score;
+
+      if (mode === "random_activefirst") {
+        group = active ? 0 : 1; // activas arriba
+        score = r + (p.isPremium ? PREMIUM_BOOST : 0);
+      } else {
+        // "random": mezcla suave con bonus a activas
+        score =
+          r +
+          (p.isPremium ? PREMIUM_BOOST : 0) +
+          (active ? PROM_ACTIVE_BOOST : 0);
+      }
+
+      return { id: String(p._id), group, score };
+    });
+
+    // Orden estable por seed
+    scored.sort((a, b) => {
+      // si es activefirst: agrupa; si es random, group=0 para todos
+      if (a.group !== b.group) return a.group - b.group;
+      if (b.score !== a.score) return b.score - a.score;
+      return a.id < b.id ? -1 : 1; // desempate
+    });
+
+    // 3) Page slice
+    const pageIds = scored.slice(skip, skip + lim).map((x) => x.id);
+
+    // 4) Traemos las promos de la página con populate
+    const pageDocs = await Promotion.find({ _id: { $in: pageIds } })
       .populate("business", "name")
       .populate("community", "name")
       .populate("category", "name")
       .populate("createdBy", "name email")
       .lean();
 
-    const promotions = promos.map((p) => ({
-      ...p,
-      remaining: remainingOf(p),
-    }));
+    // 5) Reordenamos según pageIds y añadimos remaining
+    const byId = new Map(pageDocs.map((d) => [String(d._id), d]));
+    const promotions = pageIds
+      .map((id) => {
+        const p = byId.get(id);
+        if (!p) return null;
+        return { ...p, remaining: remainingOf(p) };
+      })
+      .filter(Boolean);
 
-    res.status(200).json({ promotions });
+    return res.status(200).json({
+      seed, // 👈 devuelve la seed para que el front la reutilice en las siguientes páginas
+      promotions,
+      total,
+      perPage: lim,
+      page: pg,
+      totalPages: Math.ceil(total / lim),
+    });
   } catch (error) {
     console.error("Error en getPromotions:", error);
     res.status(500).json({ message: "Error al obtener promociones" });
