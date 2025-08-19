@@ -35,6 +35,7 @@ import commentRoutes from "./routes/comments.routes.js";
 
 import userPromoRoutes from "./routes/userPromo.routes.js";
 import adBannerRoutes from "./routes/adBanner.routes.js";
+import { initPassport } from "./config/passport.js";
 
 const app = express();
 
@@ -70,7 +71,7 @@ app.use(
     credentials: true,
   })
 );
-
+initPassport();
 // Passport
 app.use(passport.initialize());
 

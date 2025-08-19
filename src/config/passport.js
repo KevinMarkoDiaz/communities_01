@@ -19,7 +19,9 @@ const USE_PASSPORT_SESSION =
  */
 export function initPassport() {
   // Evita registrar dos veces la estrategia si el archivo se importa más de una vez
-  if (passport._strategies && passport._strategies.google) return passport;
+  if (passport._strategies && passport._strategies.google) {
+    return passport;
+  }
 
   passport.use(
     new GoogleStrategy(
@@ -109,6 +111,7 @@ export function initPassport() {
     });
   }
 
+  console.log("[passport] GoogleStrategy registrada"); // 👈 debug útil
   return passport;
 }
 
