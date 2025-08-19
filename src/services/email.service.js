@@ -4,17 +4,20 @@ const appUrl = process.env.FRONTEND_URL || "https://communidades.com/";
 const from =
   process.env.EMAIL_FROM || "Communidades <no-reply@communidades.com>";
 
-// Defaults de marca (puedes moverlos a env o a una config central)
+// Defaults de marca
 const BRAND = {
   name: "Communidades",
   tagline: "Conecta con tu comunidad latina",
-  logoUrl: "https://dev.communidades.com/images/logo.png", // pon aquí tu URL real del logo (PNG transparente ~200x48)
-  accentColor: "#fb923c", // naranja marca
+  logoUrl: "https://dev.communidades.com/images/logo.png",
+  accentColor: "#fb923c",
   textColor: "#111111",
   bgColor: "#f6f7fb",
   cardBg: "#ffffff",
   footerText: "#6b7280",
 };
+
+// 👉 Constante de ilustración
+const illustrationUrl = "https://dev.communidades.com/images/ilusta.png";
 
 export async function sendNewMessageEmail({
   to,
@@ -22,8 +25,8 @@ export async function sendNewMessageEmail({
   senderName,
   preview,
   conversationId,
-  brand = BRAND, // permite override por correo si quieres
-  unsubscribeUrl, // opcional: link para gestionar notificaciones
+  brand = BRAND,
+  unsubscribeUrl,
 }) {
   const subject = `Nuevo mensaje de ${senderName} en ${brand.name}`;
   const url = `${appUrl}dashboard/inbox/conversation/${conversationId}`;
@@ -39,7 +42,6 @@ export async function sendNewMessageEmail({
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${escapeHtml(subject)}</title>
     <style>
-      /* Resets */
       body,table,td,a { -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }
       table,td { mso-table-lspace:0pt; mso-table-rspace:0pt; }
       img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }
@@ -47,9 +49,7 @@ export async function sendNewMessageEmail({
       body { margin:0 !important; padding:0 !important; width:100% !important; background:${
         brand.bgColor
       }; }
-      /* Mobile */
       @media screen and (max-width: 600px) { .container { width:100% !important; } .px-24 { padding-left:16px !important; padding-right:16px !important; } .py-24 { padding-top:16px !important; padding-bottom:16px !important; } .btn { width:100% !important; } }
-      /* Dark mode (soporte parcial) */
       @media (prefers-color-scheme: dark) {
         body { background:#0b0b0b !important; }
         .card { background:#111111 !important; }
@@ -57,12 +57,10 @@ export async function sendNewMessageEmail({
         .muted { color:#9ca3af !important; }
         .brandbar { background:#111111 !important; color:#ffffff !important; }
       }
-      /* Safe fonts */
       .text, .muted { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height:1.6; }
     </style>
   </head>
   <body style="background:${brand.bgColor};">
-    <!-- Preheader (oculto en el cuerpo pero visible en inbox) -->
     <div style="display:none; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">
       ${escapeHtml(preheader)}
     </div>
@@ -70,7 +68,6 @@ export async function sendNewMessageEmail({
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center" class="px-24" style="padding:24px;">
-          <!-- Contenedor -->
           <table role="presentation" width="560" class="container" cellpadding="0" cellspacing="0" style="width:560px; max-width:560px;">
             <!-- Brand bar -->
             <tr>
@@ -87,6 +84,13 @@ export async function sendNewMessageEmail({
                     </td>
                   </tr>
                 </table>
+              </td>
+            </tr>
+
+            <!-- Ilustración -->
+            <tr>
+              <td align="center" style="padding:20px 0;">
+                <img src="${illustrationUrl}" alt="Ilustración" width="100%" style="max-width:500px; height:auto; display:block; margin:0 auto;" />
               </td>
             </tr>
 
@@ -113,8 +117,6 @@ export async function sendNewMessageEmail({
                   }; border-radius:8px;">
                     ${safePreview || "<em>(sin contenido)</em>"}
                   </blockquote>
-
-                  <!-- Botón (bulletproof) -->
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="left" class="btn" style="margin:0 0 8px 0;">
                     <tr>
                       <td align="center" bgcolor="${
@@ -127,13 +129,10 @@ export async function sendNewMessageEmail({
                       </td>
                     </tr>
                   </table>
-
-                  <p class="muted" style="margin:16px 0 0 0; font-size:12px; color:#666;">
+                  <p class="muted" style="margin:16px 0 0 0; font-size:16px; color:#666;">
                     Consejo: responde pronto para mantener el hilo activo y mejorar la visibilidad de tu perfil.
                   </p>
-
                   <hr style="border:none; border-top:1px solid #eee; margin:24px 0;">
-
                   <p class="muted" style="margin:0 0 6px 0; font-size:12px; color:${
                     brand.footerText
                   };">
@@ -201,7 +200,7 @@ export async function sendNewMessageEmail({
   });
 }
 
-// util mínima para no inyectar HTML
+// util mínima
 function escapeHtml(s = "") {
   return String(s)
     .replaceAll("&", "&amp;")
