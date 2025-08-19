@@ -1,117 +1,212 @@
-// controllers/userPromo.controller.js
-import { v4 as uuidv4 } from "uuid";
-import UserPromo from "../models/userPromo.model.js";
+// src/controllers/userPromo.controller.js
+import mongoose from "mongoose";
 import Promotion from "../models/promotion.model.js";
+import UserPromo from "../models/userPromo.model.js";
 import Business from "../models/business.model.js";
 
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+// Genera un código corto y único-ish; si colisiona, reintenta
+const genCode = () =>
+  `PR-${Date.now().toString(36).slice(-4)}-${Math.random()
+    .toString(36)
+    .toUpperCase()
+    .slice(2, 6)}`;
+
+// 👤 POST /api/user-promos/:promotionId
 export const claimPromotion = async (req, res) => {
-  const { promotionId } = req.params;
-  const userId = req.user._id;
-
   try {
-    const alreadyClaimed = await UserPromo.findOne({
-      user: userId,
-      promotion: promotionId,
-    });
+    const { promotionId } = req.params;
+    const userId = req.user._id;
 
-    if (alreadyClaimed) {
-      return res.status(409).json({
-        message: "Ya guardaste esta promoción.",
-        userPromo: alreadyClaimed,
-      });
+    if (!isValidObjectId(promotionId)) {
+      return res.status(400).json({ message: "ID de promoción inválido" });
     }
 
-    const promo = await Promotion.findById(promotionId);
-    if (!promo) {
-      return res.status(404).json({ message: "Promoción no encontrada." });
+    // 1) Cargamos la promo para validar estado/fechas
+    const promoDoc = await Promotion.findById(promotionId).select(
+      "startDate endDate maxClaims claimedCount business name"
+    );
+    if (!promoDoc) {
+      return res.status(404).json({ message: "Promoción no encontrada" });
     }
 
-    // ✅ Contar cuántas veces ya fue reclamada
-    const currentClaims = await UserPromo.countDocuments({
-      promotion: promotionId,
-    });
-
-    // ⚠️ Validar si se alcanzó el máximo
-    if (promo.maxClaims && currentClaims >= promo.maxClaims) {
-      return res.status(400).json({
-        message:
-          "Se alcanzó el límite de cupones disponibles para esta promoción.",
-        remainingClaims: 0,
-      });
+    const now = new Date();
+    if (promoDoc.startDate && now < promoDoc.startDate) {
+      return res
+        .status(400)
+        .json({ message: "La promoción aún no ha comenzado" });
+    }
+    if (promoDoc.endDate && now > promoDoc.endDate) {
+      return res.status(410).json({ message: "La promoción ha finalizado" });
     }
 
-    const code = uuidv4().split("-")[0].toUpperCase();
+    // 2) Reserva de cupo atómica (si maxClaims es null -> ilimitado).
+    //    Usamos $expr para comparar claimedCount < maxClaims en el query.
+    const reserved = await Promotion.findOneAndUpdate(
+      {
+        _id: promoDoc._id,
+        $or: [
+          { maxClaims: null },
+          { $expr: { $lt: ["$claimedCount", "$maxClaims"] } },
+        ],
+      },
+      { $inc: { claimedCount: 1 } },
+      { new: true } // ← devuelve doc actualizado
+    ).select("maxClaims claimedCount");
 
-    const newUserPromo = await UserPromo.create({
-      user: userId,
-      promotion: promotionId,
-      code,
-    });
+    if (!reserved) {
+      return res.status(409).json({ message: "No quedan cupones disponibles" });
+    }
 
-    const remainingClaims = promo.maxClaims
-      ? promo.maxClaims - (currentClaims + 1)
-      : null;
+    // 3) Creamos el UserPromo; si el usuario ya tenía uno, revertimos el cupo.
+    let code;
+    let created;
+    let tries = 0;
 
-    res.status(201).json({
-      message: "Promoción guardada",
-      userPromo: newUserPromo,
-      remainingClaims,
+    while (!created && tries < 5) {
+      try {
+        code = genCode();
+        created = await UserPromo.create({
+          user: userId,
+          promotion: promoDoc._id,
+          code,
+        });
+      } catch (err) {
+        // Duplicado por índice único (user+promotion) => ya reclamó
+        if (
+          err?.code === 11000 &&
+          err?.keyPattern?.user &&
+          err?.keyPattern?.promotion
+        ) {
+          // rollback del cupo
+          await Promotion.updateOne(
+            { _id: promoDoc._id },
+            { $inc: { claimedCount: -1 } }
+          );
+          return res
+            .status(409)
+            .json({ message: "Ya reclamaste esta promoción previamente" });
+        }
+        // Duplicado de code => reintenta generar otro
+        if (err?.code === 11000 && err?.keyPattern?.code) {
+          tries += 1;
+          continue;
+        }
+        // Otro error
+        // rollback del cupo por seguridad
+        await Promotion.updateOne(
+          { _id: promoDoc._id },
+          { $inc: { claimedCount: -1 } }
+        );
+        throw err;
+      }
+    }
+
+    if (!created) {
+      // No logramos generar un code único tras varios intentos
+      await Promotion.updateOne(
+        { _id: promoDoc._id },
+        { $inc: { claimedCount: -1 } }
+      );
+      return res
+        .status(500)
+        .json({ message: "No fue posible generar el cupón, reintenta" });
+    }
+
+    // 4) Respuesta con remaining
+    const max = reserved.maxClaims;
+    const count = reserved.claimedCount;
+    const remaining = max == null ? null : Math.max(0, max - count);
+
+    return res.status(201).json({
+      message: "Cupón reclamado",
+      userPromo: {
+        id: created._id,
+        code: created.code,
+        redeemed: created.redeemed,
+        redeemedAt: created.redeemedAt,
+        promotion: String(promoDoc._id),
+      },
+      claimedCount: count,
+      maxClaims: max,
+      remaining,
     });
   } catch (error) {
-    console.error("Error en claimPromotion:", error);
-    res.status(500).json({ message: "Error al guardar la promoción" });
+    console.error("❌ Error en claimPromotion:", error);
+    return res.status(500).json({ message: "Error al reclamar promoción" });
   }
 };
 
+// 🏪 POST /api/user-promos/redeem { code }
+// Solo admin o business_owner (ya controlado en router con hasRole),
+// y si es business_owner debe ser dueño del negocio de esa promo.
 export const redeemPromotionCode = async (req, res) => {
-  const { code } = req.body;
-  const businessOwnerId = req.user._id;
-
   try {
-    const userPromo = await UserPromo.findOne({ code }).populate("promotion");
+    const raw = (req.body?.code || "").toString().trim();
+    if (!raw) return res.status(400).json({ message: "Código requerido" });
+
+    const code = raw.toUpperCase();
+
+    const userPromo = await UserPromo.findOne({ code })
+      .populate("promotion", "business name")
+      .lean();
 
     if (!userPromo) {
-      return res.status(404).json({ message: "Código no válido" });
+      return res.status(404).json({ message: "Cupón no encontrado" });
+    }
+
+    // Si es business_owner: validar que sea dueño del negocio de la promo
+    if (req.user.role === "business_owner") {
+      const promoBusinessId = userPromo.promotion?.business;
+      const biz = await Business.findById(promoBusinessId).select("owner");
+      if (!biz || biz.owner.toString() !== req.user._id.toString()) {
+        return res
+          .status(403)
+          .json({ message: "No autorizado para redimir este cupón" });
+      }
     }
 
     if (userPromo.redeemed) {
-      return res.status(400).json({ message: "Este código ya fue redimido" });
+      return res.status(200).json({
+        message: "Cupón ya estaba redimido",
+        redeemed: true,
+        redeemedAt: userPromo.redeemedAt,
+      });
     }
 
-    const business = await Business.findById(userPromo.promotion.business);
-    if (!business || business.owner.toString() !== businessOwnerId.toString()) {
-      return res
-        .status(403)
-        .json({ message: "No autorizado para redimir esta promoción" });
-    }
+    const updated = await UserPromo.findOneAndUpdate(
+      { code },
+      { $set: { redeemed: true, redeemedAt: new Date() } },
+      { new: true }
+    ).lean();
 
-    userPromo.redeemed = true;
-    userPromo.redeemedAt = new Date();
-    await userPromo.save();
-
-    res.status(200).json({ message: "Código redimido con éxito", userPromo });
+    return res.status(200).json({
+      message: "Cupón redimido correctamente",
+      redeemed: true,
+      redeemedAt: updated.redeemedAt,
+    });
   } catch (error) {
-    console.error("Error en redeemPromotionCode:", error);
-    res.status(500).json({ message: "Error al redimir el código" });
+    console.error("❌ Error en redeemPromotionCode:", error);
+    return res.status(500).json({ message: "Error al redimir cupón" });
   }
 };
 
+// 👤 GET /api/user-promos
 export const getMyClaimedPromos = async (req, res) => {
   try {
-    const userPromos = await UserPromo.find({ user: req.user._id })
-      .populate({
-        path: "promotion",
-        populate: [
-          { path: "business", select: "name profileImage" },
-          { path: "category", select: "name" },
-          { path: "community", select: "name" },
-        ],
-      })
+    const list = await UserPromo.find({ user: req.user._id })
+      .populate(
+        "promotion",
+        "name featuredImage business community category maxClaims claimedCount endDate"
+      )
       .sort({ createdAt: -1 });
 
-    res.status(200).json(userPromos);
+    return res.status(200).json({ promos: list });
   } catch (error) {
-    console.error("Error en getMyClaimedPromos:", error);
-    res.status(500).json({ message: "Error al obtener promociones guardadas" });
+    console.error("❌ Error en getMyClaimedPromos:", error);
+    return res
+      .status(500)
+      .json({ message: "Error al obtener tus promociones reclamadas" });
   }
 };

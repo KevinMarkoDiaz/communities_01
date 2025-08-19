@@ -1,3 +1,4 @@
+// controllers/promotion.controller.js
 import mongoose from "mongoose";
 import Promotion from "../models/promotion.model.js";
 import Business from "../models/business.model.js";
@@ -8,8 +9,15 @@ import { zodErrorToResponse } from "../utils/zodErrorToResponse.js";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+// Helper para calcular "remaining"
+const remainingOf = (p) =>
+  p?.maxClaims == null
+    ? null
+    : Math.max(0, (p.maxClaims || 0) - (p.claimedCount || 0));
+
 /**
  * GET /api/promotions
+ * Lista de promociones con remaining calculado.
  */
 export const getPromotions = async (req, res) => {
   try {
@@ -25,9 +33,15 @@ export const getPromotions = async (req, res) => {
       .populate("business", "name")
       .populate("community", "name")
       .populate("category", "name")
-      .populate("createdBy", "name email");
+      .populate("createdBy", "name email")
+      .lean();
 
-    res.status(200).json({ promotions: promos });
+    const promotions = promos.map((p) => ({
+      ...p,
+      remaining: remainingOf(p),
+    }));
+
+    res.status(200).json({ promotions });
   } catch (error) {
     console.error("Error en getPromotions:", error);
     res.status(500).json({ message: "Error al obtener promociones" });
@@ -36,6 +50,7 @@ export const getPromotions = async (req, res) => {
 
 /**
  * POST /api/promotions
+ * Crea una promoción. El claimedCount se inicia en 0 (en el modelo).
  */
 export const createPromotion = async (req, res) => {
   try {
@@ -64,6 +79,7 @@ export const createPromotion = async (req, res) => {
       return res.status(404).json({ message: "Negocio no encontrado" });
     }
 
+    // Solo el owner del negocio (o admin) puede crear
     if (
       req.user.role === "business_owner" &&
       negocio.owner.toString() !== req.user._id.toString()
@@ -73,6 +89,7 @@ export const createPromotion = async (req, res) => {
         .json({ message: "No autorizado para este negocio" });
     }
 
+    // Límite de 5 promociones por negocio
     const count = await Promotion.countDocuments({ business });
     if (count >= 5) {
       return res.status(400).json({
@@ -91,10 +108,12 @@ export const createPromotion = async (req, res) => {
       category,
       community,
       featuredImage,
-      maxClaims,
-      isPremium: req.user.isPremium === true, // ✅ Asignar según estado premium
+      maxClaims: typeof maxClaims === "number" ? maxClaims : null,
+      isPremium: req.user.isPremium === true, // flag premium según el usuario
+      // claimedCount: 0 // <- lo pone el modelo por defecto
     });
 
+    // Notificar a seguidores del negocio
     const follows = await Follow.find({
       entityType: "business",
       entityId: negocio._id,
@@ -114,7 +133,10 @@ export const createPromotion = async (req, res) => {
       await Notification.insertMany(notifications);
     }
 
-    res.status(201).json({ message: "Promoción creada", promotion });
+    res.status(201).json({
+      message: "Promoción creada",
+      promotion: { ...promotion.toObject(), remaining: remainingOf(promotion) },
+    });
   } catch (error) {
     console.error("Error en createPromotion:", error);
     res.status(500).json({ message: "Error al crear promoción" });
@@ -123,6 +145,7 @@ export const createPromotion = async (req, res) => {
 
 /**
  * PUT /api/promotions/:id
+ * Actualiza promoción. Valida que maxClaims no sea menor que claimedCount actual.
  */
 export const updatePromotion = async (req, res) => {
   try {
@@ -139,6 +162,7 @@ export const updatePromotion = async (req, res) => {
       return res.status(404).json({ message: "Promoción no encontrada" });
     }
 
+    // Solo admin o quien creó la promo (o dueño del negocio si así lo manejas)
     if (
       req.user.role === "business_owner" &&
       promo.createdBy.toString() !== req.user._id.toString()
@@ -148,16 +172,34 @@ export const updatePromotion = async (req, res) => {
         .json({ message: "No autorizado para editar esta promoción" });
     }
 
+    // Si viene maxClaims en la actualización, validar contra claimedCount actual
+    if (Object.prototype.hasOwnProperty.call(parsed.data, "maxClaims")) {
+      const nuevoMax = parsed.data.maxClaims;
+      if (nuevoMax !== null && typeof nuevoMax === "number") {
+        if (nuevoMax < (promo.claimedCount || 0)) {
+          return res.status(400).json({
+            message: `maxClaims (${nuevoMax}) no puede ser menor a los ya reclamados (${
+              promo.claimedCount || 0
+            }).`,
+          });
+        }
+      }
+    }
+
+    // Actualiza campos
     Object.assign(promo, parsed.data);
 
+    // Si featuredImage viene en el body (aunque no pase zod por ser multipart), respétalo
     if (req.body.featuredImage) {
       promo.featuredImage = req.body.featuredImage;
     }
 
-    promo.isPremium = req.user.isPremium === true; // ✅ Recalcular estado premium
+    // Recalcular estado premium por si cambió el usuario
+    promo.isPremium = req.user.isPremium === true;
 
     await promo.save();
 
+    // Notificar seguidores del negocio si existe business asociado
     if (promo.business) {
       const follows = await Follow.find({
         entityType: "business",
@@ -179,7 +221,10 @@ export const updatePromotion = async (req, res) => {
       }
     }
 
-    res.json({ message: "Promoción actualizada", promotion: promo });
+    res.json({
+      message: "Promoción actualizada",
+      promotion: { ...promo.toObject(), remaining: remainingOf(promo) },
+    });
   } catch (error) {
     console.error("Error en updatePromotion:", error);
     res.status(500).json({ message: "Error al actualizar promoción" });
@@ -220,6 +265,7 @@ export const deletePromotion = async (req, res) => {
 
 /**
  * GET /api/promotions/community/:id
+ * Lista las promos de una comunidad con remaining.
  */
 export const getPromotionsByCommunity = async (req, res) => {
   const { id } = req.params;
@@ -229,10 +275,16 @@ export const getPromotionsByCommunity = async (req, res) => {
   }
 
   try {
-    const promotions = await Promotion.find({ community: id })
+    const promos = await Promotion.find({ community: id })
       .populate("business", "name profileImage")
       .populate("category", "name icon")
-      .populate("createdBy", "name role");
+      .populate("createdBy", "name role")
+      .lean();
+
+    const promotions = promos.map((p) => ({
+      ...p,
+      remaining: remainingOf(p),
+    }));
 
     res.status(200).json({
       success: true,
@@ -247,11 +299,16 @@ export const getPromotionsByCommunity = async (req, res) => {
 
 /**
  * GET /api/promotions/mine
+ * Promos creadas por el usuario actual con remaining.
  */
 export const getMyPromotions = async (req, res) => {
   try {
-    const promociones = await Promotion.find({ createdBy: req.user._id });
-    res.status(200).json({ promotions: promociones });
+    const promos = await Promotion.find({ createdBy: req.user._id }).lean();
+    const promotions = promos.map((p) => ({
+      ...p,
+      remaining: remainingOf(p),
+    }));
+    res.status(200).json({ promotions });
   } catch (error) {
     console.error("Error al obtener promociones del usuario:", error);
     res

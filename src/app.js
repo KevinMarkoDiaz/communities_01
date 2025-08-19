@@ -103,7 +103,6 @@ app.use("/api/events", eventRoutes);
 app.use("/api/community-views", communityViewRoutes);
 app.use("/api/business-views", businessViewRoutes);
 app.use("/api/event-views", eventViewRoutes);
-
 app.use("/api", promotionRoutes);
 app.use("/api", communityRoutes);
 app.use("/api", categoryRoutes);

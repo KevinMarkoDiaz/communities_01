@@ -1,3 +1,4 @@
+// src/routes/userPromo.routes.js
 import { Router } from "express";
 import {
   claimPromotion,
@@ -9,7 +10,6 @@ import { hasRole } from "../middlewares/hasRole.js";
 
 const router = Router();
 
-// ✅ Redención por parte del negocio (¡debe ir antes que /:promotionId!)
 router.post(
   "/redeem",
   authMiddleware,
@@ -17,10 +17,8 @@ router.post(
   redeemPromotionCode
 );
 
-// 👤 El usuario guarda una promoción
 router.post("/:promotionId", authMiddleware, claimPromotion);
 
-// 👤 Obtener las promos que el usuario guardó
 router.get("/", authMiddleware, getMyClaimedPromos);
 
 export default router;

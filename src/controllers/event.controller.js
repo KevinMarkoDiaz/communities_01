@@ -8,9 +8,32 @@ import EventView from "../models/eventView.model.js";
 import Rating from "../models/rating.model.js";
 import Comment from "../models/comment.model.js";
 import Community from "../models/community.model.js";
+import { v2 as cloudinary } from "cloudinary"; // 👈 NUEVO
+
 // 🧠 Limpia links vacíos
 const cleanLink = (val) =>
   typeof val === "string" && val.trim() === "" ? undefined : val;
+
+// 👇 Helpers Cloudinary (NUEVOS)
+const isCloudinaryUrl = (url) =>
+  typeof url === "string" && /res\.cloudinary\.com/.test(url);
+
+const getCloudinaryPublicId = (url) => {
+  try {
+    const u = new URL(url);
+    // .../upload/v12345/<carpeta>/<nombre>.ext
+    const parts = u.pathname.split("/");
+    const filename = parts[parts.length - 1]; // nombre.ext
+    const idxUpload = parts.findIndex((p) => p === "upload");
+    if (idxUpload === -1) return null;
+    // después de 'upload' viene 'vNNNN', luego carpetas reales y al final filename
+    const after = parts.slice(idxUpload + 2, parts.length - 1); // carpetas
+    const nameNoExt = filename.replace(/\.[^/.]+$/, "");
+    return [...after, nameNoExt].join("/"); // carpeta/subcarpeta/nombre
+  } catch {
+    return null;
+  }
+};
 
 // 🛠 Campos actualizables
 const camposActualizables = [
@@ -37,17 +60,14 @@ const camposActualizables = [
   "status",
 ];
 
-// ✅ Crear evento
 // ✅ Crear evento (versión unificada y robusta)
 export const createEvent = async (req, res) => {
   try {
-    // 1) Unificar payload (multipart con FormData trae un campo 'data' stringificado)
     const payload =
       typeof req.body?.data === "string"
         ? JSON.parse(req.body.data)
         : { ...req.body };
 
-    // 2) Extraer campos (con defaults)
     let {
       title,
       description,
@@ -74,7 +94,6 @@ export const createEvent = async (req, res) => {
       organizerModel,
     } = payload;
 
-    // 3) Normalizar organizer a string (evita ObjectId top-level)
     if (organizer && typeof organizer !== "string") {
       if (typeof organizer?.toString === "function") {
         organizer = organizer.toString();
@@ -83,7 +102,6 @@ export const createEvent = async (req, res) => {
       }
     }
 
-    // 4) Quilatar arrays de IDs → string[]
     const toStringArray = (arr) =>
       Array.isArray(arr) ? arr.map((x) => String(x)) : [];
     communities = toStringArray(communities);
@@ -91,32 +109,27 @@ export const createEvent = async (req, res) => {
     categories = toStringArray(categories);
     sponsors = toStringArray(sponsors);
     tags = Array.isArray(tags) ? tags.map(String) : [];
-    // likes normalmente no lo envías en creación; si llega, lo ignoramos
 
-    // 5) Resolver organizer real según rol
     const realOrganizer =
       req.user?.role === "admin" && organizer ? organizer : String(req.user.id);
 
     const realModel =
       req.user?.role === "admin" && organizerModel
-        ? organizerModel // "User" | "Business" (confiamos en tu UI/admin)
+        ? organizerModel
         : req.user?.role === "business_owner"
         ? "Business"
         : "User";
 
-    // 6) Limpieza de links ("" -> undefined)
     const clean = (val) =>
       typeof val === "string" && val.trim() === "" ? undefined : val;
 
     registrationLink = clean(registrationLink);
     virtualLink = clean(virtualLink);
 
-    // 7) Geocodificación / coordinates (GeoJSON)
     let enrichedLocation = location;
     let geoCoordinates = undefined;
 
     if (isOnline) {
-      // 🌐 ONLINE: intentar usar coordinates de alguna comunidad; si no, fallback a Dallas
       if (communities.length > 0) {
         for (const communityId of communities) {
           const community = await Community.findById(communityId);
@@ -143,7 +156,6 @@ export const createEvent = async (req, res) => {
         };
       }
 
-      // Limpia dirección física si vino con datos residuales
       enrichedLocation = {
         address: "",
         city: "",
@@ -152,7 +164,6 @@ export const createEvent = async (req, res) => {
         country: (location && location.country) || "USA",
       };
     } else {
-      // 📍 PRESENCIAL: geocodificar si hay dirección suficiente
       if (location?.address && location?.city && location?.state) {
         const fullAddress = `${location.address}, ${location.city}, ${
           location.state
@@ -170,7 +181,6 @@ export const createEvent = async (req, res) => {
         }
 
         enrichedLocation = { ...location };
-        // por si llega un objeto location.coordinates {lat, lng}, lo removemos
         if (enrichedLocation.coordinates) delete enrichedLocation.coordinates;
 
         geoCoordinates = {
@@ -178,13 +188,11 @@ export const createEvent = async (req, res) => {
           coordinates: [coords.lng, coords.lat],
         };
       } else {
-        // Dirección incompleta → no incluimos coordinates; el índice 2dsphere no fallará si no existe
         enrichedLocation = { ...(location || {}) };
         if (enrichedLocation.coordinates) delete enrichedLocation.coordinates;
       }
     }
 
-    // 8) Construir documento final del evento
     const eventData = {
       title,
       description,
@@ -212,7 +220,6 @@ export const createEvent = async (req, res) => {
       createdBy: req.user.id,
     };
 
-    // Adjuntar GeoJSON solo si es válido
     if (
       geoCoordinates?.type === "Point" &&
       Array.isArray(geoCoordinates.coordinates) &&
@@ -223,17 +230,14 @@ export const createEvent = async (req, res) => {
       eventData.coordinates = geoCoordinates;
     }
 
-    // 9) Crear y guardar
     const newEvent = new Event(eventData);
 
-    // Premium flag si aplica
     if (req.user.isPremium === true) {
       newEvent.isPremium = true;
     }
 
     await newEvent.save();
 
-    // 🔔 Notificar seguidores de negocios mencionados
     if (businesses.length) {
       const followers = await Follow.find({
         entityType: "business",
@@ -330,8 +334,22 @@ export const getEventById = async (req, res) => {
   }
 };
 
-// ✅ Actualizar evento
+// ✅ Actualizar evento (galería mixta, tope 5, borrados cloudinary)
 export const updateEvent = async (req, res) => {
+  // 🔎 Logs útiles
+  console.log("🧩 BODY KEYS:", Object.keys(req.body || {}));
+  console.log("🧩 FILES KEYS:", Object.keys(req.files || {}));
+  console.log("🧪 req.body.featuredImage:", req.body.featuredImage);
+  console.log(
+    "🧪 req.body.images count:",
+    Array.isArray(req.body.images) ? req.body.images.length : 0
+  );
+  console.log(
+    "raw req.body.data:",
+    typeof req.body.data,
+    typeof req.body.data === "string" ? req.body.data.slice(0, 200) : ""
+  );
+
   try {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ msg: "Evento no encontrado" });
@@ -344,15 +362,30 @@ export const updateEvent = async (req, res) => {
         .json({ msg: "No tienes permisos para editar este evento" });
     }
 
-    const {
-      location,
-      isOnline,
-      registrationLink,
-      virtualLink,
-      businesses = [],
-    } = req.body;
+    // 1) Unificar payload si viene en `data`
+    const payload =
+      typeof req.body?.data === "string"
+        ? JSON.parse(req.body.data)
+        : req.body || {};
 
-    // 📍 Geocodificación si es presencial y hay dirección
+    // Extraer campos que afectan geocodificación
+    const {
+      location: payloadLocation,
+      isOnline: payloadIsOnline,
+      registrationLink: payloadRegistrationLink,
+      virtualLink: payloadVirtualLink,
+      businesses: payloadBusinesses,
+      existingImages: existingImagesFromData, // 👈 viene del front (UI)
+      featuredImage: featuredImageFromData,
+      images: _ignoredImagesInData, // no usamos esto del data, las nuevas URLs llegan en req.body.images desde tu middleware
+    } = payload;
+
+    // 2) Geocodificación si es presencial y hay dirección
+    const location =
+      typeof payloadLocation === "object" ? payloadLocation : undefined;
+    const isOnline =
+      typeof payloadIsOnline === "boolean" ? payloadIsOnline : event.isOnline;
+
     if (
       location &&
       typeof location === "object" &&
@@ -367,8 +400,9 @@ export const updateEvent = async (req, res) => {
         }, ${location.country || "USA"}`;
         const coords = await geocodeAddress(fullAddress);
 
-        req.body.location.coordinates = coords;
-        req.body.coordinates = coords; // Guardamos como propiedad de primer nivel para búsquedas geográficas
+        // Guardamos como objeto simple (tu modelo lo transforma a geoJSON si corresponde)
+        req.body.location = { ...location, coordinates: coords };
+        req.body.coordinates = coords;
       } catch (err) {
         console.error("❌ Error al geocodificar:", err);
         return res
@@ -377,20 +411,172 @@ export const updateEvent = async (req, res) => {
       }
     }
 
-    // 🧼 Limpiar campos vacíos
-    if (registrationLink === "") req.body.registrationLink = undefined;
-    if (virtualLink === "") req.body.virtualLink = undefined;
+    // 3) Limpiar campos vacíos
+    if (payloadRegistrationLink === "") req.body.registrationLink = undefined;
+    if (payloadVirtualLink === "") req.body.virtualLink = undefined;
 
-    // ✅ Aplicar cambios
+    // 4) ====== IMÁGENES ======
+    const prevFeatured = event.featuredImage;
+    const prevGallery = Array.isArray(event.images) ? event.images : [];
+
+    // Featured: prioriza lo que subió el middleware como file; si no, lo que llegue en `data`
+    let nextFeatured = prevFeatured;
+    if (
+      typeof req.body.featuredImage === "string" &&
+      req.body.featuredImage.trim()
+    ) {
+      nextFeatured = req.body.featuredImage.trim();
+    } else if (
+      typeof featuredImageFromData === "string" &&
+      featuredImageFromData.trim()
+    ) {
+      nextFeatured = featuredImageFromData.trim();
+    }
+
+    // existingImages puede venir en data o legacy arriba
+    const rawExistingTop = req.body.existingImages; // legacy por compatibilidad
+    const existingProvided =
+      Object.prototype.hasOwnProperty.call(payload, "existingImages") ||
+      Object.prototype.hasOwnProperty.call(req.body, "existingImages");
+
+    let existingImages;
+    try {
+      existingImages =
+        typeof existingImagesFromData === "string"
+          ? JSON.parse(existingImagesFromData)
+          : existingImagesFromData ??
+            (typeof rawExistingTop === "string"
+              ? JSON.parse(rawExistingTop)
+              : rawExistingTop);
+    } catch {
+      existingImages = undefined;
+    }
+
+    // Nuevas URLs subidas en esta request (las pone tu middleware en req.body.images)
+    const newUrls = Array.isArray(req.body.images) ? req.body.images : [];
+
+    console.log("existingProvided:", existingProvided);
+    console.log("prevGallery:", prevGallery.length, prevGallery);
+    console.log(
+      "keepInput (existingImages):",
+      Array.isArray(existingImages) ? existingImages.length : "(undefined)",
+      existingImages
+    );
+    console.log("newUrls (subidas):", newUrls.length, newUrls);
+
+    const MAX_GALLERY = 5;
+
+    // Si existingImages vino (aunque sea []), lo usamos como set final del usuario;
+    // Si NO vino, interpretamos que no quiso tocar la galería → conservamos prevGallery y SOLO agregamos nuevas hasta el tope.
+    const keepInput = Array.isArray(existingImages)
+      ? existingImages
+      : prevGallery;
+
+    // normaliza keep (únicas, orden conservado)
+    const seen = new Set();
+    const keep = [];
+    for (const u of keepInput) {
+      if (typeof u === "string" && u && !seen.has(u)) {
+        seen.add(u);
+        keep.push(u);
+      }
+    }
+
+    // cupos y overflow para nuevas
+    const slots = Math.max(0, MAX_GALLERY - keep.length);
+    const acceptedNew = newUrls.slice(0, slots);
+    const overflowNew = newUrls.slice(slots);
+
+    const nextGallery = [...keep, ...acceptedNew];
+    console.log("nextGallery:", nextGallery.length, nextGallery);
+    console.log("overflowNew:", overflowNew.length);
+
+    // 5) Aplicar cambios (excepto imágenes que ya fijamos arriba)
     for (const campo of camposActualizables) {
-      if (req.body[campo] !== undefined) {
+      if (campo === "images" || campo === "featuredImage") continue; // las manejamos aparte
+      if (payload[campo] !== undefined) {
+        event[campo] = payload[campo];
+      } else if (req.body[campo] !== undefined) {
         event[campo] = req.body[campo];
       }
     }
 
+    // featured/profile y galería
+    if (typeof nextFeatured === "string") event.featuredImage = nextFeatured;
+    event.images = nextGallery;
+
     await event.save();
 
-    // 🔔 Notificar seguidores si el negocio cambia
+    // 6) Borrados Cloudinary (best-effort)
+    const uploadedByFile = req._uploadedByFile || {};
+    const uploadedPublicIds = req._uploadedPublicIds || { gallery: [] };
+
+    // Featured: si cambió y la nueva vino por file → borra la anterior
+    if (
+      nextFeatured !== prevFeatured &&
+      uploadedByFile.featuredImage &&
+      prevFeatured &&
+      isCloudinaryUrl(prevFeatured)
+    ) {
+      const pid = getCloudinaryPublicId(prevFeatured);
+      if (pid) {
+        cloudinary.uploader
+          .destroy(pid)
+          .catch((e) =>
+            console.warn(
+              "⚠️ No se pudo borrar featured anterior:",
+              pid,
+              e?.message
+            )
+          );
+      }
+    }
+
+    // Galería: si existingImages vino → borra las que el usuario quitó (prev - keep)
+    if (Array.isArray(existingImages)) {
+      const removedOld = prevGallery.filter((url) => !keep.includes(url));
+      const removedOldPids = removedOld
+        .filter(isCloudinaryUrl)
+        .map(getCloudinaryPublicId)
+        .filter(Boolean);
+      if (removedOldPids.length) {
+        cloudinary.api
+          .delete_resources(removedOldPids)
+          .catch((e) =>
+            console.warn(
+              "⚠️ No se pudieron borrar imágenes removidas (old):",
+              e?.message
+            )
+          );
+      }
+    }
+
+    // Overflow: nuevas subidas que no entraron por el tope
+    if (
+      Array.isArray(uploadedPublicIds.gallery) &&
+      uploadedPublicIds.gallery.length
+    ) {
+      const overflowPids = uploadedPublicIds.gallery
+        .filter((it) => overflowNew.includes(it.url))
+        .map((it) => it.public_id)
+        .filter(Boolean);
+
+      if (overflowPids.length) {
+        cloudinary.api
+          .delete_resources(overflowPids)
+          .catch((e) =>
+            console.warn(
+              "⚠️ No se pudieron borrar imágenes overflow (nuevas):",
+              e?.message
+            )
+          );
+      }
+    }
+
+    // 7) Notificaciones por negocios
+    const businesses = Array.isArray(payloadBusinesses)
+      ? payloadBusinesses
+      : req.body.businesses;
     if (businesses?.length) {
       const followers = await Follow.find({
         entityType: "business",

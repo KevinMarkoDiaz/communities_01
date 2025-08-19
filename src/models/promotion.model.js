@@ -1,3 +1,4 @@
+// models/promotion.model.js
 import mongoose from "mongoose";
 import UserPromo from "./userPromo.model.js";
 
@@ -14,10 +15,7 @@ const promotionSchema = new mongoose.Schema(
       ],
       required: true,
     },
-    isPremium: {
-      type: Boolean,
-      default: false,
-    },
+    isPremium: { type: Boolean, default: false },
     featuredImage: { type: String, required: true },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
@@ -41,15 +39,14 @@ const promotionSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    maxClaims: {
-      type: Number,
-      default: null,
-    },
+
+    maxClaims: { type: Number, default: null }, // null => ilimitado
+    claimedCount: { type: Number, default: 0 }, // ✅ contador atómico
   },
   { timestamps: true }
 );
 
-// Eliminar cupones asociados al borrar promoción
+// Limpieza de user-promos al borrar la promoción
 promotionSchema.pre(
   "deleteOne",
   { document: true, query: false },
