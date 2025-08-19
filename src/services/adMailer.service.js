@@ -15,7 +15,7 @@ const adminEnvList = (process.env.ADMIN_ALERT_EMAILS || "")
 const BRAND = {
   name: "Communidades",
   tagline: "Conecta con tu comunidad latina",
-  logoUrl: "https://dev.communidades.com/assets/icono-BU47RJ2L.svg", // pon aquí tu URL real del logo (PNG transparente ~200x48)
+  logoUrl: "https://dev.communidades.com/images/logo.png", // pon aquí tu URL real del logo (PNG transparente ~200x48)
   accentColor: "#fb923c",
   textColor: "#111111",
   bgColor: "#f6f7fb",
@@ -254,10 +254,10 @@ export async function sendAdSubmittedAdminAlert({
   if (!recipients.length) return;
 
   const subject = `Nuevo banner enviado: ${banner?.title || "Sin título"}`;
-  const reviewUrl = utm(
-    `${appUrl}/dashboard/ads/review?bannerId=${banner?._id}`,
-    { utm_campaign: "ads_admin", utm_content: "submitted" }
-  );
+  const reviewUrl = utm(`${appUrl}dashboard-admin/banners`, {
+    utm_campaign: "ads_admin",
+    utm_content: "submitted",
+  });
   const preheader = `${
     submitter?.name || "Usuario"
   } envió un banner para revisión`;
@@ -321,7 +321,7 @@ export async function sendAdSubmittedUserReceipt({
   if (!can) return;
 
   const subject = `Recibimos tu banner: ${banner?.title || "Sin título"}`;
-  const statusUrl = utm(`${appUrl}/dashboard/ads?bannerId=${banner?._id}`, {
+  const statusUrl = utm(`${appUrl}dashboard/mis-banners`, {
     utm_content: "submitted_receipt",
   });
   const preheader = `Tu banner está pendiente de aprobación. Te avisaremos por email.`;
@@ -366,10 +366,9 @@ export async function sendAdApprovedUserEmail({ banner, user, brand = BRAND }) {
   if (!can) return;
 
   const subject = `Tu banner fue aprobado: ${banner?.title || "Sin título"}`;
-  const payUrl = utm(
-    `${appUrl}/dashboard/ads?bannerId=${banner?._id}&action=pay`,
-    { utm_content: "approved_pay" }
-  );
+  const payUrl = utm(`${appUrl}dashboard/mis-banners`, {
+    utm_content: "approved_pay",
+  });
   const preheader = `Completa el pago para publicar tu banner.`;
 
   const amount = formatMoney(
@@ -422,7 +421,7 @@ export async function sendAdPublishedUserEmail({
   if (!can) return;
 
   const subject = `¡Tu banner ya está publicado!`;
-  const detailsUrl = utm(`${appUrl}/dashboard/ads?bannerId=${banner?._id}`, {
+  const detailsUrl = utm(`${appUrl}dashboard/mis-banners`, {
     utm_content: "published",
   });
   const preheader = `Tu campaña está activa. Revisa fechas y detalles.`;
