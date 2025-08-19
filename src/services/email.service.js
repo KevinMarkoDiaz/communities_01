@@ -1,6 +1,6 @@
 import transporter from "../libs/mailer.js";
 
-const appUrl = process.env.FRONTEND_URL || "https://app.communidades.com";
+const appUrl = process.env.FRONTEND_URL || "https://communidades.com/";
 const from =
   process.env.EMAIL_FROM || "Communidades <no-reply@communidades.com>";
 
@@ -8,7 +8,7 @@ const from =
 const BRAND = {
   name: "Communidades",
   tagline: "Conecta con tu comunidad latina",
-  logoUrl: "https://dev.communidades.com/assets/icono-BU47RJ2L.svg", // pon aquí tu URL real del logo (PNG transparente ~200x48)
+  logoUrl: "https://dev.communidades.com/images/logo.png", // pon aquí tu URL real del logo (PNG transparente ~200x48)
   accentColor: "#fb923c", // naranja marca
   textColor: "#111111",
   bgColor: "#f6f7fb",
@@ -26,7 +26,7 @@ export async function sendNewMessageEmail({
   unsubscribeUrl, // opcional: link para gestionar notificaciones
 }) {
   const subject = `Nuevo mensaje de ${senderName} en ${brand.name}`;
-  const url = `${appUrl}/inbox/conversation/${conversationId}`;
+  const url = `${appUrl}dashboard/inbox/conversation/${conversationId}`;
 
   const safePreview = escapeHtml(preview || "");
   const preheader = `Tienes un nuevo mensaje de ${senderName}. Abre la conversación en ${brand.name}.`;
