@@ -155,13 +155,13 @@ export const createBusiness = async (req, res) => {
     if (!communityDoc)
       return res.status(404).json({ msg: "Comunidad no encontrada." });
 
-    // Imágenes resultantes de imageProcessor
+    // Imágenes resultantes de imageProcessor (usar solo lo que dejó el middleware)
     if (!featuredImage && req.body.featuredImage)
       featuredImage = req.body.featuredImage;
     if (!profileImage && req.body.profileImage)
       profileImage = req.body.profileImage;
-    if (Array.isArray(req.body.images) && req.body.images.length) {
-      images = [...(Array.isArray(images) ? images : []), ...req.body.images];
+    if (Array.isArray(req.body.images)) {
+      images = req.body.images;
     }
 
     // GEO
