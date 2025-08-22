@@ -1,32 +1,23 @@
-// middlewares/imageUpload.middleware.js
 import dotenv from "dotenv";
 dotenv.config();
 
 import sharp from "sharp";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
-import path from "path";
-import fs from "fs";
-import fsp from "fs/promises";
 
-/* ─────────────────────────────────────────────────────────
- *  Helpers de imagen: resize + corrección de orientación
- *  (rotate() usa metadata EXIF para evitar fotos “de lado”)
- * ───────────────────────────────────────────────────────── */
-async function resizeImage(inputPath, outputPath, width = 1200) {
-  const ext = path.extname(inputPath).toLowerCase();
-  const sharpInstance = sharp(inputPath).rotate().resize({ width });
-
-  if (ext === ".jpg" || ext === ".jpeg") {
-    await sharpInstance.jpeg({ quality: 80 }).toFile(outputPath);
-  } else if (ext === ".png") {
-    await sharpInstance.png({ quality: 80 }).toFile(outputPath);
-  } else if (ext === ".webp") {
-    await sharpInstance.webp({ quality: 80 }).toFile(outputPath);
-  } else {
-    await sharpInstance.toFile(outputPath);
-  }
-}
+/*
+──────────────────────────────────────────────────────────────────────────────
+  🚀 Render-safe image upload middleware
+  - Replaces diskStorage + local `/uploads` with memoryStorage (buffers)
+  - Processes images with Sharp entirely in memory
+  - Uploads to Cloudinary using upload_stream (no temp files)
+  - Keeps the same external API of your previous middlewares
+    * uploaderMiddleware (business): fields for featured/profile/images
+    * imageProcessor (business): sets req.body URLs
+    * singleProfileImageUpload + handleProfileImage
+    * uploadCommunityImages (any) + processCommunityImages
+──────────────────────────────────────────────────────────────────────────────
+*/
 
 /* ─────────────────────────────────────────────────────────
  *  Cloudinary config
@@ -38,27 +29,16 @@ cloudinary.config({
 });
 
 /* ─────────────────────────────────────────────────────────
- *  Carpeta /uploads (diskStorage)
+ *  Multer (memoryStorage) — NO FILESYSTEM
  * ───────────────────────────────────────────────────────── */
-const uploadsDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-/* ─────────────────────────────────────────────────────────
- *  Multer (diskStorage)
- * ───────────────────────────────────────────────────────── */
-const storage = multer.diskStorage({
-  destination: "uploads/",
-  filename: (req, file, cb) => {
-    const safeName = file.originalname
-      .replace(/\s+/g, "_")
-      .replace(/[^\w.-]/g, "");
-    cb(null, Date.now() + "-" + safeName);
+const storage = multer.memoryStorage();
+export const upload = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB por archivo (ajusta a tu gusto)
+    files: 30, // evita bombazos
   },
 });
-
-export const upload = multer({ storage });
 
 export const uploaderMiddleware = upload.fields([
   { name: "featuredImage", maxCount: 1 },
@@ -67,127 +47,120 @@ export const uploaderMiddleware = upload.fields([
 ]);
 
 /* ─────────────────────────────────────────────────────────
- *  Borrado robusto con reintentos (EPERM / EBUSY en Windows)
+ *  Helpers de procesamiento en memoria
  * ───────────────────────────────────────────────────────── */
-async function safeUnlink(filePath, { retries = 5, baseDelayMs = 150 } = {}) {
-  if (!filePath) return false;
-  for (let i = 0; i < retries; i++) {
-    try {
-      await fsp.access(filePath).catch(() => {
-        throw { code: "ENOENT" };
-      });
-      await fsp.unlink(filePath);
-      return true;
-    } catch (err) {
-      if (err?.code === "ENOENT") return true; // ya no existe
-      if (err?.code === "EPERM" || err?.code === "EBUSY") {
-        const wait = baseDelayMs * (i + 1);
-        await new Promise((r) => setTimeout(r, wait));
-        continue;
-      }
-      console.warn(
-        "⚠️ No se pudo borrar archivo temporal:",
-        err?.message || err
-      );
-      return false;
-    }
-  }
-  console.warn(
-    "⚠️ No se pudo borrar archivo temporal tras reintentos:",
-    filePath
-  );
-  return false;
+
+/**
+ * Procesa un buffer de imagen con Sharp (rotate + resize) y lo convierte
+ * a un formato comprimido. Preferimos WEBP; si el cliente exige PNG por
+ * transparencia real, puedes forzar PNG según mimetype.
+ */
+async function processImageBuffer(buffer, mimetype, { width = 1200 } = {}) {
+  const pipeline = sharp(buffer)
+    .rotate()
+    .resize({ width, withoutEnlargement: true });
+  // Elegimos formato de salida
+  const isPng = /png$/i.test(mimetype);
+  const isJpeg = /jpe?g$/i.test(mimetype);
+  const isWebp = /webp$/i.test(mimetype);
+
+  if (isWebp) return pipeline.webp({ quality: 80 }).toBuffer();
+  if (isPng) return pipeline.png({ quality: 80 }).toBuffer();
+  if (isJpeg) return pipeline.jpeg({ quality: 80 }).toBuffer();
+  // Fallback a WEBP para otros formatos (heic, tiff, etc.)
+  return pipeline.webp({ quality: 80 }).toBuffer();
 }
 
-async function deleteTempFile(filePath) {
-  try {
-    await safeUnlink(filePath);
-  } catch (err) {
-    console.warn("⚠️ No se pudo borrar archivo temporal:", err?.message || err);
-  }
+/**
+ * Sube un buffer a Cloudinary usando upload_stream. Devuelve el resultado
+ * de Cloudinary (secure_url, public_id, etc.).
+ */
+function uploadBufferToCloudinary(
+  buffer,
+  { folder = "uploads", public_id } = {}
+) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder, public_id },
+      (err, result) => (err ? reject(err) : resolve(result))
+    );
+    stream.end(buffer);
+  });
+}
+
+/**
+ * Procesa (sharp) + sube (cloudinary) una única imagen desde `file` de multer.
+ * Devuelve el objeto result de Cloudinary.
+ */
+async function processAndUploadFile(
+  file,
+  { folder, width } = { folder: "uploads", width: 1200 }
+) {
+  if (!file || !file.buffer) throw new Error("Archivo inválido o sin buffer");
+  const processed = await processImageBuffer(file.buffer, file.mimetype, {
+    width,
+  });
+  const safeBase = (file.originalname || "image")
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9._-]/g, "");
+  const public_id = `${Date.now()}-${safeBase}`.replace(
+    /\.(png|jpe?g|webp|gif|heic|tiff)$/i,
+    ""
+  );
+  return uploadBufferToCloudinary(processed, { folder, public_id });
 }
 
 /* ─────────────────────────────────────────────────────────
- *  Procesador de imágenes para Negocios
- *  - Sube portada / perfil / galería si llegaron como FILE
- *  - Deja en req.body las URLs finales (para el controlador)
- *  - Marca req._uploadedByFile.{featuredImage,profileImage,gallery}
+ *  Negocios: imageProcessor
+ *  - Lee req.files (buffers) y escribe URLs en req.body
  * ───────────────────────────────────────────────────────── */
 export const imageProcessor = async (req, res, next) => {
   try {
-    const files = req.files;
-    // inicializa flags
+    const files = req.files || {};
     req._uploadedByFile = req._uploadedByFile || {};
 
     // FEATURED (portada)
     if (files?.featuredImage?.[0]) {
-      const inputPath = files.featuredImage[0].path;
-      const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
-      await resizeImage(inputPath, resizedPath);
-
-      const result = await cloudinary.uploader.upload(resizedPath, {
+      const result = await processAndUploadFile(files.featuredImage[0], {
         folder: "negocios/featured",
+        width: 1600,
       });
-
-      // Si hay archivo, SIEMPRE sobreescribe con la URL subida
       req.body.featuredImage = result.secure_url;
       req._uploadedByFile.featuredImage = true;
-
-      await deleteTempFile(inputPath);
-      await deleteTempFile(resizedPath);
     }
-    // Si NO hay file para featuredImage, no toques req.body.featuredImage.
-    // (Si venía por URL desde parseDataField, el controlador la verá).
 
-    // PROFILE (avatar/imagen de perfil del negocio)
+    // PROFILE (avatar)
     if (files?.profileImage?.[0]) {
-      const inputPath = files.profileImage[0].path;
-      const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
-      await resizeImage(inputPath, resizedPath);
-
-      const result = await cloudinary.uploader.upload(resizedPath, {
+      const result = await processAndUploadFile(files.profileImage[0], {
         folder: "negocios/profile",
+        width: 600,
       });
-
       req.body.profileImage = result.secure_url;
       req._uploadedByFile.profileImage = true;
-
-      await deleteTempFile(inputPath);
-      await deleteTempFile(resizedPath);
     }
 
     // GALERÍA (múltiples)
     if (files?.images?.length > 0) {
       const uploads = await Promise.all(
-        files.images.map(async (file) => {
-          try {
-            const inputPath = file.path;
-            const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
-            await resizeImage(inputPath, resizedPath);
-
-            const result = await cloudinary.uploader.upload(resizedPath, {
-              folder: "negocios/galeria",
-            });
-
-            await deleteTempFile(inputPath);
-            await deleteTempFile(resizedPath);
-            return result.secure_url;
-          } catch (err) {
-            console.error(
-              "❌ Error subiendo imagen de galería:",
-              err?.message || err
-            );
-            return null;
-          }
-        })
+        files.images.map((f) =>
+          processAndUploadFile(f, { folder: "negocios/galeria", width: 1400 })
+            .then((r) => r.secure_url)
+            .catch((err) => {
+              console.error(
+                "❌ Error subiendo imagen de galería:",
+                err?.message || err
+              );
+              return null;
+            })
+        )
       );
-
       const prev = Array.isArray(req.body.images) ? req.body.images : [];
-      req.body.images = [...prev, ...uploads.filter(Boolean)]; // fusiona con las que vinieran como URL (poco común)
+      req.body.images = [...prev, ...uploads.filter(Boolean)];
       req._uploadedByFile.gallery = true;
     }
 
-    next();
+    return next();
   } catch (error) {
     console.error("🛑 Error en imageProcessor:", {
       message: error?.message,
@@ -205,39 +178,27 @@ export const singleProfileImageUpload = upload.single("profileImage");
 export const handleProfileImage = async (req, res, next) => {
   try {
     if (req.file) {
-      const inputPath = req.file.path;
-      const resizedPath = inputPath.replace(/\.(\w+)$/, "-resized.$1");
-      await resizeImage(inputPath, resizedPath);
-
-      const result = await cloudinary.uploader.upload(resizedPath, {
+      const result = await processAndUploadFile(req.file, {
         folder: "perfiles",
+        width: 600,
       });
       req.body.profileImage = result.secure_url;
       req._uploadedByFile = req._uploadedByFile || {};
       req._uploadedByFile.profileImage = true;
-
-      await deleteTempFile(inputPath);
-      await deleteTempFile(resizedPath);
     }
-    next();
+    return next();
   } catch (error) {
     console.error("❌ Error al subir imagen de perfil:", error);
-    res.status(500).json({ msg: "Error en imagen de perfil" });
+    return res.status(500).json({ msg: "Error en imagen de perfil" });
   }
 };
 
 /* ─────────────────────────────────────────────────────────
- *  Subidas “any” para comunidades (mantengo API)
- * ───────────────────────────────────────────────────────── */
-/* ─────────────────────────────────────────────────────────
  *  Comunidades: uploader + procesador
+ *  - Mantiene upload.any() por flexibilidad (foodImages y variantes)
  * ───────────────────────────────────────────────────────── */
-// ⬇️ Usa fields([...]) SI tu frontend manda SIEMPRE estas keys.
-//    Si ves "MulterError: Unexpected field", cambia a .any() y listo.
 export const uploadCommunityImages = upload.any();
-// Alternativa tolerante a índices como "foodImages[0]":
-// export const uploadCommunityImages = upload.any();
-// Convierte req.files de array (upload.any()) a objeto agrupado por fieldname
+
 function normalizeFiles(req) {
   if (Array.isArray(req.files)) {
     const map = {};
@@ -247,15 +208,6 @@ function normalizeFiles(req) {
     return map;
   }
   return req.files || {};
-}
-// Helper: resize + upload + cleanup
-async function uploadToCloudinary(filePath, folder = "uploads") {
-  const resizedPath = filePath.replace(/\.(\w+)$/, "-resized.$1");
-  await resizeImage(filePath, resizedPath);
-  const result = await cloudinary.uploader.upload(resizedPath, { folder });
-  await deleteTempFile(filePath);
-  await deleteTempFile(resizedPath);
-  return result; // { secure_url, ... }
 }
 
 export const processCommunityImages = async (req, res, next) => {
@@ -267,30 +219,30 @@ export const processCommunityImages = async (req, res, next) => {
 
     // 1) flagImage
     if (filesByKey?.flagImage?.[0]) {
-      const up = await uploadToCloudinary(
-        filesByKey.flagImage[0].path,
-        "communities"
-      );
+      const up = await processAndUploadFile(filesByKey.flagImage[0], {
+        folder: "communities",
+        width: 600,
+      });
       req.body.flagImage = up.secure_url;
       req._uploadedByFile.flagImage = true;
     }
 
     // 2) bannerImage
     if (filesByKey?.bannerImage?.[0]) {
-      const up = await uploadToCloudinary(
-        filesByKey.bannerImage[0].path,
-        "communities"
-      );
+      const up = await processAndUploadFile(filesByKey.bannerImage[0], {
+        folder: "communities",
+        width: 1800,
+      });
       req.body.bannerImage = up.secure_url;
       req._uploadedByFile.bannerImage = true;
     }
 
     // 3) originCountryFlag -> originCountryInfo.flag
     if (filesByKey?.originCountryFlag?.[0]) {
-      const up = await uploadToCloudinary(
-        filesByKey.originCountryFlag[0].path,
-        "communities"
-      );
+      const up = await processAndUploadFile(filesByKey.originCountryFlag[0], {
+        folder: "communities",
+        width: 600,
+      });
       req.body.originCountryInfo = {
         ...(req.body.originCountryInfo || {}),
         flag: up.secure_url,
@@ -305,10 +257,10 @@ export const processCommunityImages = async (req, res, next) => {
     ) {
       if (!Array.isArray(req.body.food)) req.body.food = [];
       for (let i = 0; i < filesByKey.foodImages.length; i++) {
-        const up = await uploadToCloudinary(
-          filesByKey.foodImages[i].path,
-          "communities"
-        );
+        const up = await processAndUploadFile(filesByKey.foodImages[i], {
+          folder: "communities",
+          width: 1200,
+        });
         req.body.food[i] = {
           ...(req.body.food[i] || {}),
           image: up.secure_url,
@@ -319,7 +271,7 @@ export const processCommunityImages = async (req, res, next) => {
 
     // 4B) foodImages con índices: foodImages[0], foodImages[1], ...
     const bracketedKeys = Object.keys(filesByKey).filter((k) =>
-      /^foodImages\[\d+\]$/.test(k)
+      /^(foodImages|food)\[\d+\]$/.test(k)
     );
     if (bracketedKeys.length > 0) {
       if (!Array.isArray(req.body.food)) req.body.food = [];
@@ -331,7 +283,10 @@ export const processCommunityImages = async (req, res, next) => {
       for (const k of bracketedKeys) {
         const idx = parseInt(k.match(/\[(\d+)\]/)[1], 10);
         const file = filesByKey[k][0];
-        const up = await uploadToCloudinary(file.path, "communities");
+        const up = await processAndUploadFile(file, {
+          folder: "communities",
+          width: 1200,
+        });
         req.body.food[idx] = {
           ...(req.body.food[idx] || {}),
           image: up.secure_url,
@@ -340,7 +295,7 @@ export const processCommunityImages = async (req, res, next) => {
       }
     }
 
-    // Debug
+    // Debug opcional
     console.log("[img] body.flagImage:", req.body.flagImage);
     console.log("[img] body.bannerImage:", req.body.bannerImage);
     console.log(
@@ -352,9 +307,9 @@ export const processCommunityImages = async (req, res, next) => {
       Array.isArray(req.body.food) ? req.body.food.length : 0
     );
 
-    next();
+    return next();
   } catch (err) {
     console.error("❌ Error en processCommunityImages:", err);
-    res.status(500).json({ error: "Error al procesar imágenes" });
+    return res.status(500).json({ error: "Error al procesar imágenes" });
   }
 };
