@@ -19,7 +19,7 @@ import {
   processCommunityImages,
 } from "../middlewares/imageUpload.middleware.js"; // Asegurate que sea la ruta correcta
 
-import { parseDataField } from "../middlewares/parseDataField.js";
+import { parseCommunityData } from "../middlewares/parseCommunityData.js";
 import { getPromotionsByCommunity } from "../controllers/promotion.controller.js";
 
 const router = Router();
@@ -32,7 +32,7 @@ router.post(
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploadCommunityImages, // 🟡 archivos en req.files
-  parseDataField, // 🟠 parsea req.body.data si aplica
+  parseCommunityData, // 🟠 parsea req.body.data si aplica
   processCommunityImages, // 🔵 sube a Cloudinary, setea req.body.flagImage
   validateWith(communitySchema), // 🟢 aquí ya debe estar flagImage como string
   createCommunity
@@ -65,7 +65,7 @@ router.put(
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploadCommunityImages, // 🟡 1. Subida de imágenes (flagImage, bannerImage)
-  parseDataField, // 🟠 2. Parsear `req.body.data` si viene en string
+  parseCommunityData, // 🟠 2. Parsear `req.body.data` si viene en string
   processCommunityImages, // 🔵 3. Subida a Cloudinary y limpieza (si aplica)
   updateCommunity // ✅ 5. Controlador principal
 );

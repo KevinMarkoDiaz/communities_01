@@ -13,37 +13,113 @@ const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
  * Crear comunidad
  */
 export const createCommunity = async (req, res) => {
+  // Usa el id que seteaste en app.js; si no, evita que salga "undefined"
+  const reqId = req.id || "-";
+
   try {
+    console.log(
+      `[community:create] id=${reqId} start uid=${req.user?.id ?? "-"} role=${
+        req.user?.role ?? "-"
+      } origin=${req.headers.origin ?? "-"} ct=${
+        req.headers["content-type"] ?? "-"
+      } clen=${req.headers["content-length"] ?? "-"}`
+    );
+
     if (!["admin", "business_owner"].includes(req.user.role)) {
+      console.warn(
+        `[community:create] id=${reqId} forbidden role=${req.user.role}`
+      );
       return res
         .status(403)
         .json({ msg: "No tienes permisos para crear comunidades." });
     }
 
+    // ─────────────────────────────────────────────────────────
+    // Parseo del body (soporta FormData con campo "data")
     let data;
     try {
-      data = req.body.data ? JSON.parse(req.body.data) : req.body;
+      if (typeof req.body?.data === "string") {
+        data = JSON.parse(req.body.data);
+        console.log(
+          `[community:create] id=${reqId} parsed from "data" (multipart JSON)`
+        );
+      } else {
+        data = req.body;
+      }
     } catch (err) {
+      console.warn(
+        `[community:create] id=${reqId} parse-fail data-field: ${err.message}`
+      );
       return res
         .status(400)
         .json({ msg: "Error al parsear los datos de entrada." });
     }
 
+    // Resumen de claves y tipos para no loguear datos sensibles
+    const keys = Object.keys(data || {});
+    const types = Object.fromEntries(
+      Object.entries(data || {}).map(([k, v]) => [
+        k,
+        Array.isArray(v) ? "array" : v === null ? "null" : typeof v,
+      ])
+    );
+    console.log(
+      `[community:create] id=${reqId} bodyKeys=${JSON.stringify(
+        keys
+      )} types=${JSON.stringify(types)}`
+    );
+
+    // ─────────────────────────────────────────────────────────
+    // Validaciones mínimas (igual que tu lógica original)
     const { name } = data;
-    if (!name)
+    if (!name) {
+      console.warn(`[community:create] id=${reqId} missing name`);
       return res
         .status(400)
         .json({ msg: "El nombre de la comunidad es obligatorio." });
+    }
 
-    const existing = await Community.findOne({ name });
+    const existing = await Community.findOne({ name }).select("_id name slug");
     if (existing) {
+      console.warn(
+        `[community:create] id=${reqId} duplicate-name existing=${existing._id}`
+      );
       return res
         .status(400)
         .json({ msg: "Ya existe una comunidad con ese nombre." });
     }
 
+    // Slug (solo log, la lógica la mantengo igual)
     const slug = slugify(name, { lower: true, strict: true });
+    console.log(`[community:create] id=${reqId} slug="${slug}"`);
 
+    // Log de coordenadas (no cambia tu flujo, solo informa)
+    const coords = data?.mapCenter?.coordinates;
+    if (!Array.isArray(coords) || coords.length !== 2) {
+      console.warn(
+        `[community:create] id=${reqId} mapCenter invalid coords=${JSON.stringify(
+          coords
+        )} (Mongoose podría fallar si es requerido)`
+      );
+    } else {
+      // intenta castear a número para avisar si vienen como strings
+      const [lng, lat] = [Number(coords[0]), Number(coords[1])];
+      const nums = Number.isFinite(lng) && Number.isFinite(lat);
+      const inRange =
+        nums && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+      console.log(
+        `[community:create] id=${reqId} coords parsed=[${lng},${lat}] numeric=${nums} inRange=${inRange}`
+      );
+    }
+
+    // Normalización ligera de externalLinks (solo log)
+    const extLen = Array.isArray(data.externalLinks)
+      ? data.externalLinks.length
+      : 0;
+    console.log(`[community:create] id=${reqId} externalLinks.len=${extLen}`);
+
+    // ─────────────────────────────────────────────────────────
+    // Creación (misma lógica que tu código)
     const newCommunity = new Community({
       ...data,
       name,
@@ -58,12 +134,22 @@ export const createCommunity = async (req, res) => {
 
     await newCommunity.save();
 
-    res
-      .status(201)
-      .json({ msg: "Comunidad creada exitosamente.", community: newCommunity });
+    console.log(
+      `[community:create] id=${reqId} created _id=${newCommunity._id} owner=${req.user.id}`
+    );
+
+    return res.status(201).json({
+      msg: "Comunidad creada exitosamente.",
+      community: newCommunity,
+    });
   } catch (error) {
-    console.error("❌ Error en createCommunity:", error);
-    res.status(500).json({ msg: "Error al crear la comunidad." });
+    // Incluye info típica de Mongo (duplicate key, etc.)
+    const code = error?.code ?? "-";
+    const key = error?.keyPattern ? JSON.stringify(error.keyPattern) : "-";
+    console.error(
+      `[community:create] id=${reqId} err=${error.name} code=${code} key=${key} msg=${error.message}`
+    );
+    return res.status(500).json({ msg: "Error al crear la comunidad." });
   }
 };
 
