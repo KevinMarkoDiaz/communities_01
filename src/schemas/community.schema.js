@@ -6,9 +6,7 @@ const emptyToUndef = (schema) =>
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     schema
   );
-
 const optionalUrl = emptyToUndef(z.string().url());
-
 const stringArrayNoEmpty = z.preprocess(
   (v) =>
     Array.isArray(v)
@@ -16,10 +14,11 @@ const stringArrayNoEmpty = z.preprocess(
       : v,
   z.array(z.string().min(1))
 );
-
-const ownerId = z.string().regex(/^[0-9a-fA-F]{24}$/, {
-  message: "ID de usuario propietario inválido",
-});
+const ownerId = z
+  .string()
+  .regex(/^[0-9a-fA-F]{24}$/, {
+    message: "ID de usuario propietario inválido",
+  });
 
 const mapCenterSchema = z.object({
   type: z.literal("Point"),
@@ -32,43 +31,60 @@ const mapCenterSchema = z.object({
     ),
 });
 
-/* Enlaces externos */
+/* Normaliza 'educación'/'educacion' y guarda con tilde */
+const resourceType = z
+  .preprocess((v) => {
+    if (typeof v !== "string") return v;
+    const base = v
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "");
+    return base; // -> 'legal' | 'salud' | 'educacion' | 'otros'
+  }, z.enum(["legal", "salud", "educacion", "otros"]))
+  .transform((v) => (v === "educacion" ? "educación" : v));
+
+/* Enlaces externos: filtra entradas vacías antes de validar */
 const externalLinkSchema = z.object({
   title: z.string().min(1, { message: "El título del enlace es obligatorio" }),
   url: z.string().url({ message: "El enlace debe ser una URL válida" }),
   type: z.enum(["facebook", "instagram", "whatsapp", "otro"]).default("otro"),
   description: z.string().optional(),
 });
+const externalLinksArray = z.preprocess((v) => {
+  if (!Array.isArray(v)) return v;
+  return v.filter(
+    (e) =>
+      e &&
+      typeof e.title === "string" &&
+      e.title.trim() !== "" &&
+      typeof e.url === "string" &&
+      e.url.trim() !== ""
+  );
+}, z.array(externalLinkSchema));
 
-/* ────────────────────────────────────────────────────────────
-   CREATE (communitySchema): NO requiere owner
-   ──────────────────────────────────────────────────────────── */
+/* Campos base para CREATE (sin owner) */
 export const communitySchema = z.object({
   name: z
     .string()
     .min(1, { message: "El nombre de la comunidad es obligatorio" })
-    .max(100, { message: "El nombre no puede exceder 100 caracteres" })
+    .max(100)
     .trim(),
-
   flagImage: optionalUrl.optional(),
   bannerImage: optionalUrl.optional(),
-
   description: z
     .string()
     .max(1000, { message: "La descripción no puede exceder 1000 caracteres" })
     .optional(),
-
   language: z
     .string()
     .length(2, { message: "El código de idioma debe tener 2 caracteres" })
     .default("es"),
-
   mapCenter: mapCenterSchema,
 
   tipo: z.string().optional(),
   region: z.string().optional(),
 
-  externalLinks: z.array(externalLinkSchema).optional(),
+  externalLinks: externalLinksArray.optional(),
 
   originCountryInfo: z
     .object({
@@ -95,7 +111,7 @@ export const communitySchema = z.object({
       z.object({
         title: z.string().min(1),
         url: z.string().url(),
-        type: z.enum(["legal", "salud", "educación", "otros"]),
+        type: resourceType, // <-- tolerante a 'educacion'/'educación'
       })
     )
     .optional(),
@@ -114,9 +130,7 @@ export const communitySchema = z.object({
   metaDescription: emptyToUndef(z.string().optional()),
 });
 
-/* ────────────────────────────────────────────────────────────
-   UPDATE (communityUpdateSchema): todo opcional; owner opcional
-   ──────────────────────────────────────────────────────────── */
+/* UPDATE: todo opcional; owner permitido (lo controla el controller) */
 export const communityUpdateSchema = z.object({
   name: communitySchema.shape.name.optional(),
   flagImage: communitySchema.shape.flagImage.optional(),
@@ -135,36 +149,27 @@ export const communityUpdateSchema = z.object({
   metaTitle: communitySchema.shape.metaTitle.optional(),
   metaDescription: communitySchema.shape.metaDescription.optional(),
 
-  // Admin-only en controller, pero aquí lo permitimos para compatibilidad:
   status: z.enum(["Inactiva", "Pendiente", "Publicada"]).optional(),
   verified: z.boolean().optional(),
   owner: ownerId.optional(),
 });
 
-/* ────────────────────────────────────────────────────────────
-   FULL RESPONSE (fullCommunitySchema)
-   ──────────────────────────────────────────────────────────── */
+/* FULL RESPONSE (lectura) */
 export const fullCommunitySchema = communitySchema.extend({
   _id: z.string(),
   slug: z.string().optional(),
-
   owner: ownerId,
-
   negocios: z
     .array(
       z.object({
         _id: z.string(),
         name: z.string(),
         category: z.any(),
-        location: z.object({
-          city: z.string(),
-          state: z.string(),
-        }),
+        location: z.object({ city: z.string(), state: z.string() }),
         images: z.array(z.string()).optional(),
       })
     )
     .optional(),
-
   eventos: z
     .array(
       z.object({
@@ -176,17 +181,13 @@ export const fullCommunitySchema = communitySchema.extend({
       })
     )
     .optional(),
-
   memberCount: z.number().int().nonnegative().optional(),
   businessCount: z.number().int().nonnegative().optional(),
   eventCount: z.number().int().nonnegative().optional(),
   mostPopularCategory: z.string().optional(),
-
   populationEstimate: z.number().int().nonnegative().optional(),
-
   featuredBusinesses: z.array(z.string()).optional(),
   featuredEvents: z.array(z.string()).optional(),
-
   testimonials: z
     .array(
       z.object({
@@ -196,12 +197,9 @@ export const fullCommunitySchema = communitySchema.extend({
       })
     )
     .optional(),
-
   moderators: z.array(z.string()).optional(),
-
   status: z.enum(["Inactiva", "Pendiente", "Publicada"]).optional(),
   verified: z.boolean().optional(),
-
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
