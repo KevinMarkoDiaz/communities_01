@@ -29,7 +29,7 @@ import { setAuthCookie } from "../utils/setAuthCookie.js";
 
 const router = Router();
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://app.communidades.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://communidades.com";
 
 /* ───────────────────────────────
    Auth local (email/clave)
