@@ -14,11 +14,9 @@ const stringArrayNoEmpty = z.preprocess(
       : v,
   z.array(z.string().min(1))
 );
-const ownerId = z
-  .string()
-  .regex(/^[0-9a-fA-F]{24}$/, {
-    message: "ID de usuario propietario inválido",
-  });
+const ownerId = z.string().regex(/^[0-9a-fA-F]{24}$/, {
+  message: "ID de usuario propietario inválido",
+});
 
 const mapCenterSchema = z.object({
   type: z.literal("Point"),
@@ -118,10 +116,10 @@ export const communitySchema = z.object({
 
   socialMediaLinks: z
     .object({
-      facebook: optionalUrl.optional(),
-      instagram: optionalUrl.optional(),
-      whatsapp: optionalUrl.optional(),
-      youtube: optionalUrl.optional(),
+      facebook: optionalUrl.nullish(), // acepta undefined o null
+      instagram: optionalUrl.nullish(),
+      whatsapp: optionalUrl.nullish(),
+      youtube: optionalUrl.nullish(),
     })
     .partial()
     .optional(),

@@ -187,17 +187,6 @@ export const imageProcessor = async (req, res, next) => {
       req._uploadedByFile.gallery = true;
     }
 
-    // Debug útil
-    console.log(
-      "🧪 imageProcessor.body.featuredImage:",
-      req.body.featuredImage
-    );
-    console.log("🧪 imageProcessor.body.profileImage:", req.body.profileImage);
-    console.log(
-      "🧪 imageProcessor.body.images count:",
-      Array.isArray(req.body.images) ? req.body.images.length : 0
-    );
-
     next();
   } catch (error) {
     console.error("🛑 Error en imageProcessor:", {
@@ -240,75 +229,128 @@ export const handleProfileImage = async (req, res, next) => {
 /* ─────────────────────────────────────────────────────────
  *  Subidas “any” para comunidades (mantengo API)
  * ───────────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────
+ *  Comunidades: uploader + procesador
+ * ───────────────────────────────────────────────────────── */
+// ⬇️ Usa fields([...]) SI tu frontend manda SIEMPRE estas keys.
+//    Si ves "MulterError: Unexpected field", cambia a .any() y listo.
 export const uploadCommunityImages = upload.any();
-
-async function uploadToCloudinary(filePath, folder = "communities") {
+// Alternativa tolerante a índices como "foodImages[0]":
+// export const uploadCommunityImages = upload.any();
+// Convierte req.files de array (upload.any()) a objeto agrupado por fieldname
+function normalizeFiles(req) {
+  if (Array.isArray(req.files)) {
+    const map = {};
+    for (const f of req.files) {
+      (map[f.fieldname] ||= []).push(f);
+    }
+    return map;
+  }
+  return req.files || {};
+}
+// Helper: resize + upload + cleanup
+async function uploadToCloudinary(filePath, folder = "uploads") {
   const resizedPath = filePath.replace(/\.(\w+)$/, "-resized.$1");
   await resizeImage(filePath, resizedPath);
   const result = await cloudinary.uploader.upload(resizedPath, { folder });
   await deleteTempFile(filePath);
   await deleteTempFile(resizedPath);
-  return result;
+  return result; // { secure_url, ... }
 }
 
 export const processCommunityImages = async (req, res, next) => {
   try {
-    // Asegura objeto para flags (por si quieres reaprovechar la misma convención)
     req._uploadedByFile = req._uploadedByFile || {};
+    req.body = req.body || {};
 
-    if (req.files?.flagImage?.[0]) {
-      const uploadResult = await uploadToCloudinary(
-        req.files.flagImage[0].path,
+    const filesByKey = normalizeFiles(req);
+
+    // 1) flagImage
+    if (filesByKey?.flagImage?.[0]) {
+      const up = await uploadToCloudinary(
+        filesByKey.flagImage[0].path,
         "communities"
       );
-      req.body.flagImage = uploadResult.secure_url;
+      req.body.flagImage = up.secure_url;
       req._uploadedByFile.flagImage = true;
     }
 
-    if (req.files?.bannerImage?.[0]) {
-      const uploadResult = await uploadToCloudinary(
-        req.files.bannerImage[0].path,
+    // 2) bannerImage
+    if (filesByKey?.bannerImage?.[0]) {
+      const up = await uploadToCloudinary(
+        filesByKey.bannerImage[0].path,
         "communities"
       );
-      req.body.bannerImage = uploadResult.secure_url;
+      req.body.bannerImage = up.secure_url;
       req._uploadedByFile.bannerImage = true;
     }
 
-    if (req.files?.originCountryFlag?.[0]) {
-      const uploadResult = await uploadToCloudinary(
-        req.files.originCountryFlag[0].path,
+    // 3) originCountryFlag -> originCountryInfo.flag
+    if (filesByKey?.originCountryFlag?.[0]) {
+      const up = await uploadToCloudinary(
+        filesByKey.originCountryFlag[0].path,
         "communities"
       );
       req.body.originCountryInfo = {
         ...(req.body.originCountryInfo || {}),
-        flag: uploadResult.secure_url,
+        flag: up.secure_url,
       };
       req._uploadedByFile.originCountryFlag = true;
     }
 
-    // Mantengo tu lógica de arrays para foodImages[n]
-    if (req.files) {
-      const foodImages = Object.entries(req.files)
-        .filter(([key]) => key.startsWith("foodImages["))
-        .sort(([a], [b]) => {
-          const ai = parseInt(a.match(/\[(\d+)\]/)?.[1] ?? "0");
-          const bi = parseInt(b.match(/\[(\d+)\]/)?.[1] ?? "0");
-          return ai - bi;
-        });
-
+    // 4A) foodImages (misma key repetida)
+    if (
+      Array.isArray(filesByKey?.foodImages) &&
+      filesByKey.foodImages.length > 0
+    ) {
       if (!Array.isArray(req.body.food)) req.body.food = [];
-
-      for (let [key, fileArr] of foodImages) {
-        const index = parseInt(key.match(/\[(\d+)\]/)?.[1] ?? "0");
-        const file = fileArr[0];
-        const uploadResult = await uploadToCloudinary(file.path, "communities");
-        req.body.food[index] = {
-          ...(req.body.food[index] || {}),
-          image: uploadResult.secure_url,
+      for (let i = 0; i < filesByKey.foodImages.length; i++) {
+        const up = await uploadToCloudinary(
+          filesByKey.foodImages[i].path,
+          "communities"
+        );
+        req.body.food[i] = {
+          ...(req.body.food[i] || {}),
+          image: up.secure_url,
         };
-        req._uploadedByFile[`foodImages_${index}`] = true;
+        req._uploadedByFile[`foodImages_${i}`] = true;
       }
     }
+
+    // 4B) foodImages con índices: foodImages[0], foodImages[1], ...
+    const bracketedKeys = Object.keys(filesByKey).filter((k) =>
+      /^foodImages\[\d+\]$/.test(k)
+    );
+    if (bracketedKeys.length > 0) {
+      if (!Array.isArray(req.body.food)) req.body.food = [];
+      bracketedKeys.sort((a, b) => {
+        const ai = parseInt(a.match(/\[(\d+)\]/)[1], 10);
+        const bi = parseInt(b.match(/\[(\d+)\]/)[1], 10);
+        return ai - bi;
+      });
+      for (const k of bracketedKeys) {
+        const idx = parseInt(k.match(/\[(\d+)\]/)[1], 10);
+        const file = filesByKey[k][0];
+        const up = await uploadToCloudinary(file.path, "communities");
+        req.body.food[idx] = {
+          ...(req.body.food[idx] || {}),
+          image: up.secure_url,
+        };
+        req._uploadedByFile[`foodImages_${idx}`] = true;
+      }
+    }
+
+    // Debug
+    console.log("[img] body.flagImage:", req.body.flagImage);
+    console.log("[img] body.bannerImage:", req.body.bannerImage);
+    console.log(
+      "[img] body.originCountryInfo?.flag:",
+      req.body.originCountryInfo?.flag
+    );
+    console.log(
+      "[img] body.food.len:",
+      Array.isArray(req.body.food) ? req.body.food.length : 0
+    );
 
     next();
   } catch (err) {

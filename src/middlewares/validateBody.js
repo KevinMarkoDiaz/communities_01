@@ -46,10 +46,9 @@ export const validateBody = (schema) => (req, res, next) => {
         console.log(
           `[validateBody] id=${reqId} parsedFromData keys=${JSON.stringify(
             keys
-          )} ` +
-            `types=${JSON.stringify(types)} coords=${
-              Array.isArray(coords) ? "[" + coords.join(",") + "]" : "n/a"
-            }`
+          )} types=${JSON.stringify(types)} coords=${
+            Array.isArray(coords) ? "[" + coords.join(",") + "]" : "n/a"
+          }`
         );
       } catch {}
     } else {
@@ -69,10 +68,9 @@ export const validateBody = (schema) => (req, res, next) => {
         console.log(
           `[validateBody] id=${reqId} parsedFromJSON keys=${JSON.stringify(
             keys
-          )} ` +
-            `types=${JSON.stringify(types)} coords=${
-              Array.isArray(coords) ? "[" + coords.join(",") + "]" : "n/a"
-            }`
+          )} types=${JSON.stringify(types)} coords=${
+            Array.isArray(coords) ? "[" + coords.join(",") + "]" : "n/a"
+          }`
         );
       } catch {}
     }
@@ -84,10 +82,9 @@ export const validateBody = (schema) => (req, res, next) => {
       const vKeys = Object.keys(validated || {});
       const coords = validated?.mapCenter?.coordinates;
       console.log(
-        `[zod] id=${reqId} OK keys=${JSON.stringify(vKeys)} ` +
-          `coords=${
-            Array.isArray(coords) ? "[" + coords.join(",") + "]" : "n/a"
-          }`
+        `[zod] id=${reqId} OK keys=${JSON.stringify(vKeys)} coords=${
+          Array.isArray(coords) ? "[" + coords.join(",") + "]" : "n/a"
+        }`
       );
     } catch {}
 

@@ -4,6 +4,21 @@ export function parseCommunityData(req, res, next) {
     const ct = (req.headers["content-type"] || "").toLowerCase();
     const reqId = req.id || "-";
 
+    // ──────────────────────────────────────────────────────
+    // Helpers de normalización
+    // ──────────────────────────────────────────────────────
+    const isEmptyPrimitive = (v) => v === "" || v === null || v === undefined;
+
+    const cleanEmpty = (obj) => {
+      if (!obj || typeof obj !== "object" || Array.isArray(obj)) return obj;
+      const out = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (isEmptyPrimitive(v)) continue;
+        out[k] = v;
+      }
+      return Object.keys(out).length ? out : undefined;
+    };
+
     // Seguridad: nunca aceptar estos campos del cliente (los fija el backend)
     if (req.body && typeof req.body === "object") {
       delete req.body.owner;
@@ -19,12 +34,8 @@ export function parseCommunityData(req, res, next) {
 
         // merge NO destructivo (no pisar archivos de multer)
         for (const [k, v] of Object.entries(parsed)) {
-          if (v === undefined || v === null || v === "") continue;
-          if (
-            req.body[k] === undefined ||
-            req.body[k] === "" ||
-            req.body[k] === null
-          ) {
+          if (isEmptyPrimitive(v)) continue;
+          if (req.body[k] === undefined || isEmptyPrimitive(req.body[k])) {
             req.body[k] = v;
           }
         }
@@ -51,6 +62,7 @@ export function parseCommunityData(req, res, next) {
         "traditions",
         "socialMediaLinks",
       ]);
+
       for (const [k, v] of Object.entries(req.body || {})) {
         if (typeof v !== "string") {
           out[k] = v;
@@ -58,6 +70,7 @@ export function parseCommunityData(req, res, next) {
         }
         const t = v.trim();
 
+        // Parseo de JSON-like
         if (
           jsonLike.has(k) &&
           ((t.startsWith("{") && t.endsWith("}")) ||
@@ -66,10 +79,12 @@ export function parseCommunityData(req, res, next) {
           try {
             out[k] = JSON.parse(t);
             continue;
-          } catch {}
+          } catch {
+            // si falla, deja string
+          }
         }
 
-        // booleans solo si fueran relevantes (en create igual se ignoran)
+        // booleans ejemplo (no aplican aquí, pero por si acaso)
         if (k === "isVerified" && (t === "true" || t === "false")) {
           out[k] = t === "true";
           continue;
@@ -102,28 +117,66 @@ export function parseCommunityData(req, res, next) {
       const lat = toNum(loc.lat ?? loc.latitude ?? loc.coordinates?.[1]);
       if (Number.isFinite(lng) && Number.isFinite(lat)) {
         req.body.mapCenter = { type: "Point", coordinates: [lng, lat] };
-        console.log(
-          `[parseCommunityData] id=${reqId} mapCenter <- location [${lng},${lat}]`
-        );
       }
     }
 
-    // 5) Log compacto (solo para comunidades)
-    const types = Object.fromEntries(
-      Object.entries(req.body || {}).map(([k, v]) => [
-        k,
-        Array.isArray(v) ? "array" : v === null ? "null" : typeof v,
-      ])
-    );
-    const finalCoords = req.body?.mapCenter?.coordinates;
-    console.log(
-      `[community:body] id=${reqId} keys=${JSON.stringify(
-        Object.keys(req.body || {})
-      )} ` +
-        `types=${JSON.stringify(types)} coords=${
-          Array.isArray(finalCoords) ? "[" + finalCoords.join(",") + "]" : "n/a"
-        }`
-    );
+    // ──────────────────────────────────────────────────────
+    // 5) Normalizaciones específicas para evitar fallos en Zod
+    // ──────────────────────────────────────────────────────
+
+    // socialMediaLinks: quita claves vacías; si queda vacío, elimina el objeto
+    if (
+      req.body.socialMediaLinks &&
+      typeof req.body.socialMediaLinks === "object"
+    ) {
+      req.body.socialMediaLinks = cleanEmpty(req.body.socialMediaLinks);
+      if (!req.body.socialMediaLinks) delete req.body.socialMediaLinks;
+    }
+
+    // originCountryInfo.flag: "" -> undefined; limpia objeto si queda vacío
+    if (
+      req.body.originCountryInfo &&
+      typeof req.body.originCountryInfo === "object"
+    ) {
+      if (req.body.originCountryInfo.flag === "") {
+        req.body.originCountryInfo.flag = undefined;
+      }
+      req.body.originCountryInfo = cleanEmpty(req.body.originCountryInfo);
+      if (!req.body.originCountryInfo) delete req.body.originCountryInfo;
+    }
+
+    // externalLinks: filtra entradas sin title/url
+    if (Array.isArray(req.body.externalLinks)) {
+      req.body.externalLinks = req.body.externalLinks.filter(
+        (e) => e && e.title?.toString().trim() && e.url?.toString().trim()
+      );
+      if (req.body.externalLinks.length === 0) delete req.body.externalLinks;
+    }
+
+    // resources: (opcional) filtra entradas mal formadas
+    if (Array.isArray(req.body.resources)) {
+      req.body.resources = req.body.resources.filter(
+        (r) => r && r.title?.toString().trim() && r.url?.toString().trim()
+      );
+      if (req.body.resources.length === 0) delete req.body.resources;
+    }
+
+    // food: normaliza strings vacíos a undefined
+    if (Array.isArray(req.body.food)) {
+      req.body.food = req.body.food.map((f) => ({
+        ...f,
+        name: f?.name, // no tocar (lo validará Zod si es requerido)
+        description: isEmptyPrimitive(f?.description)
+          ? undefined
+          : f.description,
+        image: isEmptyPrimitive(f?.image) ? undefined : f.image,
+      }));
+      // puedes eliminar items totalmente vacíos si quieres:
+      req.body.food = req.body.food.filter(
+        (f) => f && (f.name || f.description || f.image)
+      );
+      if (req.body.food.length === 0) delete req.body.food;
+    }
 
     next();
   } catch (err) {
