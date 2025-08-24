@@ -26,6 +26,10 @@ import { parseDataField } from "../middlewares/parseDataField.js";
 import { updateUser } from "../controllers/user.controller.js";
 import { createAccessToken } from "../libs/jwt.js";
 import { setAuthCookie } from "../utils/setAuthCookie.js";
+import {
+  resendVerification,
+  verifyEmail,
+} from "../controllers/emailVerify.controller.js";
 
 const router = Router();
 
@@ -137,5 +141,8 @@ router.get("/google/failure", (req, res) => {
     </html>
   `);
 });
+
+router.get("/verify-email", verifyEmail);
+router.post("/verify-email/resend", resendVerification);
 
 export default router;

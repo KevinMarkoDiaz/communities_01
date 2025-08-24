@@ -2,8 +2,7 @@
 import transporter from "../libs/mailer.js";
 
 const appUrl = process.env.FRONTEND_URL || "https://app.communidades.com";
-const from =
-  process.env.EMAIL_FROM || "Communidades <no-reply@communidades.com>";
+const from = process.env.EMAIL_FROM;
 
 /* ------------------------- BRAND CONFIG ------------------------- */
 const BRAND = {
@@ -16,9 +15,10 @@ const BRAND = {
   cardBg: "#ffffff",
   footerText: "#6b7280",
   website: "https://communidades.com",
-  instagram: "https://www.instagram.com/communidades",
-  facebook: "https://www.facebook.com/communidades",
-  x: "https://x.com/communidades",
+  instagram: "https://www.instagram.com/communidades_",
+  facebook: "https://www.facebook.com/profile.php?id=61576800572394",
+  youtube: "https://www.youtube.com/@communidadesusa",
+  youtube: "https://www.youtube.com/@communidadesusa",
   address: "Dallas–Fort Worth, TX, USA",
 };
 
@@ -249,5 +249,46 @@ export async function sendWelcomeEmail({ user, brand = BRAND }) {
     subject,
     text,
     html,
+  });
+}
+
+export async function sendVerificationEmail({ user, link, brand = BRAND }) {
+  if (!user?.email) return;
+
+  const subject = `Verifica tu correo en ${brand.name}`;
+  const preheader = `Confirma tu dirección de correo para activar tu cuenta.`;
+
+  const innerHtml = `
+    <p style="margin:0 0 12px 0;">Hola ${escapeHtml(user?.name || "")},</p>
+    <p style="margin:0 0 12px 0;">
+      Gracias por registrarte en <strong>${escapeHtml(brand.name)}</strong>.
+      Para activar tu cuenta, verifica tu correo.
+    </p>
+    ${renderButton({ href: link, label: "Verificar mi correo", brand })}
+    <p style="margin:16px 0 0 0;font-size:14px;">
+      Si el botón no funciona, copia y pega este enlace:<br>
+      <a href="${escapeHtml(link)}" target="_blank" style="color:${
+    brand.accentColor
+  };text-decoration:underline;">${escapeHtml(link)}</a>
+    </p>
+    <p style="margin:16px 0 0 0;color:#555;font-size:13px;">
+      El enlace expira en 24 horas. Si no creaste esta cuenta, ignora este correo.
+    </p>
+  `;
+
+  const html = renderEmailShell({ subject, preheader, innerHtml, brand });
+  const text = [
+    `Hola ${user?.name || ""},`,
+    `Verifica tu correo: ${link}`,
+    `El enlace expira en 24 horas.`,
+  ].join("\n");
+
+  await transporter.sendMail({
+    from,
+    to: user.email,
+    subject,
+    text,
+    html,
+    envelope: { from: process.env.SMTP_USER, to: user.email }, // 👈 evita 553
   });
 }

@@ -1,22 +1,27 @@
+// src/controllers/auth.controller.js
 import bcrypt from "bcryptjs";
 import User from "../models/user.model.js";
 import { createAccessToken } from "../libs/jwt.js";
 import { setAuthCookie } from "../utils/setAuthCookie.js";
+import {
+  createEmailVerificationToken,
+  buildVerificationLink,
+} from "../utils/emailVerification.js";
+import { sendVerificationEmail } from "../services/authMailer.service.js"; // <- usa el brandeado
 
-/**
- * Registro de usuario
- */
+// controllers/auth.controller.js
+
 export const registerUser = async (req, res) => {
   const { name, email, password, role, community, profileImage } = req.body;
 
   try {
-    const existingUser = await User.findOne({ email });
+    const normalizedEmail = String(email).trim().toLowerCase(); // 👈
+    const existingUser = await User.findOne({ email: normalizedEmail }); // 👈
     if (existingUser) {
       return res
         .status(400)
         .json({ msg: "El correo electrónico ya está registrado" });
     }
-
     if (role === "admin") {
       return res
         .status(403)
@@ -24,48 +29,40 @@ export const registerUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const { token, tokenHash, expires } = createEmailVerificationToken();
 
     const userData = {
       name,
-      email,
+      email: normalizedEmail, // 👈
       password: hashedPassword,
       role,
       profileImage,
       isVerified: false,
+      emailVerificationTokenHash: tokenHash,
+      emailVerificationExpires: expires,
     };
+    if (community?.trim()) userData.community = community;
 
-    if (community?.trim()) {
-      userData.community = community;
+    const newUser = await new User(userData).save();
+    try {
+      const link = buildVerificationLink({ uid: newUser._id, token });
+      await sendVerificationEmail({ user: newUser, link });
+    } catch (mailErr) {
+      console.error("✉️ Error enviando verificación:", mailErr);
     }
-
-    const newUser = new User(userData);
-    await newUser.save();
 
     const payload = { user: { id: newUser._id, role: newUser.role } };
-    let token;
-    try {
-      token = await createAccessToken(payload);
-    } catch (err) {
-      console.error("❌ Error al crear token:", err);
-      return res.status(500).json({ msg: "Error al generar token" });
-    }
-    setAuthCookie(res, token);
+    const tokenJwt = await createAccessToken(payload);
+    setAuthCookie(res, tokenJwt);
 
     return res.status(201).json({
-      msg: "Usuario creado",
-      token,
+      msg: "Usuario creado. Te enviamos un email para verificar tu correo.",
       user: {
         id: newUser._id,
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
-        profileImage: newUser.profileImage,
         isVerified: newUser.isVerified,
-        community: newUser.community,
-        title: newUser.title,
-        description: newUser.description,
-        location: newUser.location,
-        country: newUser.country,
       },
     });
   } catch (error) {
@@ -76,31 +73,20 @@ export const registerUser = async (req, res) => {
   }
 };
 
-/**
- * Login de usuario
- */
 export const loginUser = async (req, res) => {
   const { email, password } = req.body;
-
   try {
-    const user = await User.findOne({ email });
-    if (!user) {
+    const normalizedEmail = String(email).trim().toLowerCase(); // 👈
+    const user = await User.findOne({ email: normalizedEmail }); // 👈
+    if (!user)
       return res.status(400).json({ msg: "Correo o contraseña incorrectos" });
-    }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
+    if (!isMatch)
       return res.status(400).json({ msg: "Correo o contraseña incorrectos" });
-    }
 
     const payload = { user: { id: user._id, role: user.role } };
-    let token;
-    try {
-      token = await createAccessToken(payload);
-    } catch (err) {
-      console.error("❌ Error al crear token:", err);
-      return res.status(500).json({ msg: "Error al generar token" });
-    }
+    const token = await createAccessToken(payload);
     setAuthCookie(res, token);
 
     return res.status(200).json({
@@ -176,12 +162,10 @@ export const getUserProfile = async (req, res) => {
     });
   } catch (error) {
     console.error("Error al obtener perfil:", error);
-    return res
-      .status(500)
-      .json({
-        msg: "Error al obtener el perfil del usuario",
-        error: error.message,
-      });
+    return res.status(500).json({
+      msg: "Error al obtener el perfil del usuario",
+      error: error.message,
+    });
   }
 };
 

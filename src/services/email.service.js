@@ -1,8 +1,7 @@
 import transporter from "../libs/mailer.js";
 
 const appUrl = process.env.FRONTEND_URL || "https://communidades.com/";
-const from =
-  process.env.EMAIL_FROM || "Communidades <no-reply@communidades.com>";
+const from = process.env.EMAIL_FROM;
 
 // Defaults de marca
 const BRAND = {
