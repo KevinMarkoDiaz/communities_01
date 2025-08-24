@@ -45,7 +45,7 @@ export const verifyEmail = async (req, res) => {
     user.emailVerificationExpires = null;
     await user.save();
 
-    return res.redirect(`${FRONTEND_URL}/login?verified=1`);
+    return res.redirect(`${FRONTEND_URL}login?verified=1`);
   } catch (err) {
     console.error("verifyEmail error:", err);
     return res.status(500).send("Error del servidor");
