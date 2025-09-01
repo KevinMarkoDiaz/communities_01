@@ -26,6 +26,7 @@ import {
 } from "../middlewares/imageUpload.middleware.js";
 import { parseDataField } from "../middlewares/parseDataField.js";
 import { debugMultipart } from "../middlewares/debugMultipart.middleware.js";
+import nocache from "../middlewares/nocache.js";
 
 const router = Router();
 
@@ -73,7 +74,7 @@ const preparseForValidation = (req, res, next) => {
 };
 
 // ✅ Rutas específicas primero
-router.get("/map/:communityId", getBusinessesForMapByCommunity);
+router.get("/map/:communityId", nocache, getBusinessesForMapByCommunity);
 router.get("/community/:communityId", getBusinessesByCommunity);
 
 // Obtener todos los negocios (con paginación)

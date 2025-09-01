@@ -11,17 +11,27 @@ import { sendVerificationEmail } from "../services/authMailer.service.js"; // <-
 
 // controllers/auth.controller.js
 
+const SKIP_EMAIL_VERIFICATION =
+  String(process.env.SKIP_EMAIL_VERIFICATION).toLowerCase() === "true";
+
 export const registerUser = async (req, res) => {
   const { name, email, password, role, community, profileImage } = req.body;
 
   try {
-    const normalizedEmail = String(email).trim().toLowerCase(); // 👈
-    const existingUser = await User.findOne({ email: normalizedEmail }); // 👈
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
+    if (!normalizedEmail || !password || !name) {
+      return res.status(400).json({ msg: "Faltan datos obligatorios" });
+    }
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res
         .status(400)
         .json({ msg: "El correo electrónico ya está registrado" });
     }
+
     if (role === "admin") {
       return res
         .status(403)
@@ -29,40 +39,61 @@ export const registerUser = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const { token, tokenHash, expires } = createEmailVerificationToken();
+
+    // 🔀 Flujo bifurcado por feature-flag
+    let token, tokenHash, expires;
+    if (!SKIP_EMAIL_VERIFICATION) {
+      const t = createEmailVerificationToken();
+      token = t.token;
+      tokenHash = t.tokenHash;
+      expires = t.expires;
+    }
 
     const userData = {
       name,
-      email: normalizedEmail, // 👈
+      email: normalizedEmail,
       password: hashedPassword,
       role,
       profileImage,
-      isVerified: false,
-      emailVerificationTokenHash: tokenHash,
-      emailVerificationExpires: expires,
+      // ✅ Si saltamos verificación, el usuario queda verificado desde el registro
+      isVerified: SKIP_EMAIL_VERIFICATION ? true : false,
+      // ✅ Guardar token solo si vamos a usar verificación por correo
+      emailVerificationTokenHash: SKIP_EMAIL_VERIFICATION
+        ? undefined
+        : tokenHash,
+      emailVerificationExpires: SKIP_EMAIL_VERIFICATION ? undefined : expires,
     };
+
     if (community?.trim()) userData.community = community;
 
     const newUser = await new User(userData).save();
-    try {
-      const link = buildVerificationLink({ uid: newUser._id, token });
-      await sendVerificationEmail({ user: newUser, link });
-    } catch (mailErr) {
-      console.error("✉️ Error enviando verificación:", mailErr);
+
+    // ✉️ Enviar email SÓLO si no se salta la verificación
+    if (!SKIP_EMAIL_VERIFICATION) {
+      try {
+        const link = buildVerificationLink({ uid: newUser._id, token });
+        await sendVerificationEmail({ user: newUser, link });
+      } catch (mailErr) {
+        console.error("✉️ Error enviando verificación:", mailErr);
+        // No fallamos el registro por un error de correo
+      }
     }
 
+    // 🔐 Autenticar de una vez
     const payload = { user: { id: newUser._id, role: newUser.role } };
     const tokenJwt = await createAccessToken(payload);
     setAuthCookie(res, tokenJwt);
 
     return res.status(201).json({
-      msg: "Usuario creado. Te enviamos un email para verificar tu correo.",
+      msg: SKIP_EMAIL_VERIFICATION
+        ? "Usuario creado y verificado."
+        : "Usuario creado. Te enviamos un email para verificar tu correo.",
       user: {
         id: newUser._id,
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
-        isVerified: newUser.isVerified,
+        isVerified: newUser.isVerified, // true si skip, false si requiere verificación
       },
     });
   } catch (error) {
@@ -72,6 +103,67 @@ export const registerUser = async (req, res) => {
       .json({ msg: "Error del servidor", error: error.message });
   }
 };
+// export const registerUser = async (req, res) => {
+//   const { name, email, password, role, community, profileImage } = req.body;
+
+//   try {
+//     const normalizedEmail = String(email).trim().toLowerCase(); // 👈
+//     const existingUser = await User.findOne({ email: normalizedEmail }); // 👈
+//     if (existingUser) {
+//       return res
+//         .status(400)
+//         .json({ msg: "El correo electrónico ya está registrado" });
+//     }
+//     if (role === "admin") {
+//       return res
+//         .status(403)
+//         .json({ msg: "No tienes permisos para asignar el rol de admin." });
+//     }
+
+//     const hashedPassword = await bcrypt.hash(password, 10);
+//     const { token, tokenHash, expires } = createEmailVerificationToken();
+
+//     const userData = {
+//       name,
+//       email: normalizedEmail, // 👈
+//       password: hashedPassword,
+//       role,
+//       profileImage,
+//       isVerified: false,
+//       emailVerificationTokenHash: tokenHash,
+//       emailVerificationExpires: expires,
+//     };
+//     if (community?.trim()) userData.community = community;
+
+//     const newUser = await new User(userData).save();
+//     try {
+//       const link = buildVerificationLink({ uid: newUser._id, token });
+//       await sendVerificationEmail({ user: newUser, link });
+//     } catch (mailErr) {
+//       console.error("✉️ Error enviando verificación:", mailErr);
+//     }
+
+//     const payload = { user: { id: newUser._id, role: newUser.role } };
+//     const tokenJwt = await createAccessToken(payload);
+//     setAuthCookie(res, tokenJwt);
+
+//     return res.status(201).json({
+//       msg: "Usuario creado. Te enviamos un email para verificar tu correo.",
+//       user: {
+//         id: newUser._id,
+//         name: newUser.name,
+//         email: newUser.email,
+//         role: newUser.role,
+//         isVerified: newUser.isVerified,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error en registro:", error);
+//     return res
+//       .status(500)
+//       .json({ msg: "Error del servidor", error: error.message });
+//   }
+// };
 
 export const loginUser = async (req, res) => {
   const { email, password } = req.body;
