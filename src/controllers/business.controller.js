@@ -302,7 +302,15 @@ export const getAllBusinesses = async (req, res) => {
     // Conteo total (para paginación)
     const total = await Business.countDocuments(match);
 
-    // Helpers para traer "bloques" barajados
+    // Semilla estable (por día) o desde query (?seed=123)
+    const rawSeed =
+      Number(
+        req.query.seed ??
+          new Date().toISOString().slice(0, 10).replace(/-/g, "")
+      ) || 0;
+    // Un primo grande para “mezclar”
+    const BIG_PRIME = 2147483647;
+
     const fetchChunk = async (isPrem, sk, limi) => {
       if (limi <= 0) return [];
       const m = {
@@ -311,8 +319,20 @@ export const getAllBusinesses = async (req, res) => {
       };
       return Business.aggregate([
         { $match: m },
-        { $addFields: { _r: { $rand: {} } } },
-        { $sort: { _r: 1, _id: 1 } },
+        // _k: clave pseudo-aleatoria *determinística* por _id + seed
+        // Usamos el timestamp del ObjectId (toDate) para obtener un número,
+        // luego sumamos la seed y hacemos mod con un primo grande.
+        {
+          $addFields: {
+            _k: {
+              $mod: [
+                { $add: [{ $toLong: { $toDate: "$_id" } }, rawSeed] },
+                BIG_PRIME,
+              ],
+            },
+          },
+        },
+        { $sort: { _k: 1, _id: 1 } }, // orden estable
         { $skip: Math.max(sk, 0) },
         { $limit: limi },
       ]);
