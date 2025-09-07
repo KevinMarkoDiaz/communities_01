@@ -111,7 +111,6 @@ export function initPassport() {
     });
   }
 
-  console.log("[passport] GoogleStrategy registrada"); // 👈 debug útil
   return passport;
 }
 

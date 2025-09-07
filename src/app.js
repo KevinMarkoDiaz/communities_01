@@ -46,8 +46,9 @@ app.use(morgan("dev"));
 app.use(cookieParser());
 
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // CORS
-// Para local (como lo tienes):
+// (anterior) ❌ Solo web con cookies
 // app.use(
 //   cors({
 //     origin: "http://localhost:5173",
@@ -55,22 +56,56 @@ app.use(cookieParser());
 //   })
 // );
 
-// Si luego quieres allowlist en prod, descomenta y ajusta:
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://communidades.com",
-  "https://www.communidades.com",
-  "https://dev.communidades.com",
+// (anterior allowlist web) ❌ cookies
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://communidades.com",
+//   "https://www.communidades.com",
+//   "https://dev.communidades.com",
+// ];
+// app.use(
+//   cors({
+//     origin(origin, cb) {
+//       if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+//       else cb(new Error("Not allowed by CORS: " + origin));
+//     },
+//     credentials: true,
+//   })
+// );
+
+// 🆕 Mobile-friendly CORS (Bearer, sin cookies)
+const allowedMobile = [
+  "capacitor://localhost",
+  // "http://localhost:5173", // ← solo si quieres probar web contra este backend
 ];
+
+const isLan = (origin) => {
+  try {
+    const u = new URL(origin);
+    const h = u.hostname;
+    const is192 = /^192\.168\.\d{1,3}\.\d{1,3}$/.test(h);
+    const is10 = /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+    const is172 = /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h);
+    return u.protocol === "http:" && (is192 || is10 || is172);
+  } catch {
+    return false;
+  }
+};
+
 app.use(
   cors({
     origin(origin, cb) {
-      if (!origin || allowedOrigins.includes(origin)) cb(null, true);
-      else cb(new Error("Not allowed by CORS: " + origin));
+      if (!origin) return cb(null, true); // apps nativas / curl
+      if (allowedMobile.includes(origin) || isLan(origin))
+        return cb(null, true);
+      return cb(new Error("Not allowed by CORS: " + origin));
     },
-    credentials: true,
+    credentials: false, // 🆕 sin cookies en mobile
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"], // 🆕 Authorization
   })
 );
+
 initPassport();
 // Passport
 app.use(passport.initialize());
