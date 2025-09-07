@@ -1,4 +1,4 @@
-// src/app.js (o index de tu servidor Express)
+// src/app.js
 import express from "express";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import "./config/passport.js"; // Estrategia Google
+import { initPassport } from "./config/passport.js";
 
 // Rutas
 import authRoutes from "./routes/auth.routes.js";
@@ -35,79 +36,103 @@ import commentRoutes from "./routes/comments.routes.js";
 
 import userPromoRoutes from "./routes/userPromo.routes.js";
 import adBannerRoutes from "./routes/adBanner.routes.js";
-import { initPassport } from "./config/passport.js";
 
 const app = express();
 
 // Logs
 app.use(morgan("dev"));
 
-// Cookies
+// Cookies (queda por compatibilidad; mobile no usa cookies)
 app.use(cookieParser());
 
-// ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
-// CORS
-// (anterior) ❌ Solo web con cookies
-// app.use(
-//   cors({
-//     origin: "http://localhost:5173",
-//     credentials: true,
-//   })
-// );
+/* ─────────────────────────────────────────────────────────────
+   CORS
+   (anterior) ❌ Solo web con cookies
+   ----------------------------------------------------------------
+   app.use(
+     cors({
+       origin: "http://localhost:5173",
+       credentials: true,
+     })
+   );
 
-// (anterior allowlist web) ❌ cookies
-// const allowedOrigins = [
-//   "http://localhost:5173",
-//   "https://communidades.com",
-//   "https://www.communidades.com",
-//   "https://dev.communidades.com",
-// ];
-// app.use(
-//   cors({
-//     origin(origin, cb) {
-//       if (!origin || allowedOrigins.includes(origin)) cb(null, true);
-//       else cb(new Error("Not allowed by CORS: " + origin));
-//     },
-//     credentials: true,
-//   })
-// );
+   (anterior allowlist web) ❌ cookies
+   ----------------------------------------------------------------
+   const allowedOriginsWeb = [
+     "http://localhost:5173",
+     "https://communidades.com",
+     "https://www.communidades.com",
+     "https://dev.communidades.com",
+   ];
+   app.use(
+     cors({
+       origin(origin, cb) {
+         if (!origin || allowedOriginsWeb.includes(origin)) cb(null, true);
+         else cb(new Error("Not allowed by CORS: " + origin));
+       },
+       credentials: true,
+     })
+   );
+   ───────────────────────────────────────────────────────────── */
 
-// 🆕 Mobile-friendly CORS (Bearer, sin cookies)
-const allowedMobile = [
-  "capacitor://localhost",
-  // "http://localhost:5173", // ← solo si quieres probar web contra este backend
-];
+/* 🆕 CORS para MOBILE (Bearer en Authorization, sin cookies)
+   - Permite WebView de Capacitor: https://localhost (androidScheme "https")
+   - Permite capacitor://localhost
+   - Permite LAN http://192.168.x.x … (útil para pruebas)
+   - Mantengo dominios de producción por si alguna vista los necesita (sin cookies)
+*/
+const allowedOrigins = new Set([
+  "https://localhost", // WebView con androidScheme "https"
+  "http://localhost", // por si cambias a http
+  "capacitor://localhost", // esquema de Capacitor
+  // "http://localhost:5173",       // <- descomenta solo si vas a pegarle desde tu web local a este backend
+  "https://communidades.com",
+  "https://www.communidades.com",
+  "https://dev.communidades.com",
+]);
 
-const isLan = (origin) => {
+function isLanOrigin(origin) {
   try {
     const u = new URL(origin);
-    const h = u.hostname;
-    const is192 = /^192\.168\.\d{1,3}\.\d{1,3}$/.test(h);
-    const is10 = /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
-    const is172 = /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(h);
-    return u.protocol === "http:" && (is192 || is10 || is172);
+    const { protocol, hostname } = u;
+    const isLan =
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+    return protocol === "http:" && isLan;
   } catch {
     return false;
   }
+}
+
+// (opcional) Log para saber qué Origin llega
+app.use((req, _res, next) => {
+  if (req.headers.origin) console.log("CORS origin:", req.headers.origin);
+  next();
+});
+
+const corsOptionsDelegate = (req, cb) => {
+  const origin = req.header("Origin");
+  if (!origin || allowedOrigins.has(origin) || isLanOrigin(origin)) {
+    cb(null, {
+      origin: true, // refleja el origin permitido
+      credentials: false, // MOBILE: sin cookies
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+      exposedHeaders: ["Set-Cookie"],
+      optionsSuccessStatus: 204, // evita 500 en preflight
+    });
+  } else {
+    cb(new Error("Not allowed by CORS: " + origin));
+  }
 };
 
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin) return cb(null, true); // apps nativas / curl
-      if (allowedMobile.includes(origin) || isLan(origin))
-        return cb(null, true);
-      return cb(new Error("Not allowed by CORS: " + origin));
-    },
-    credentials: false, // 🆕 sin cookies en mobile
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"], // 🆕 Authorization
-  })
-);
+app.use(cors(corsOptionsDelegate));
+// Asegurar que todos los preflight OPTIONS respondan OK
+app.options("*", cors(corsOptionsDelegate));
 
-initPassport();
 // Passport
+initPassport();
 app.use(passport.initialize());
 
 // ─────────────────────────────────────────────────────────────
@@ -115,18 +140,14 @@ app.use(passport.initialize());
 // IMPORTANTE: el webhook necesita body RAW. Evitamos aplicar express.json()
 // a esa ruta exacta. Luego, dentro de stripe.routes.js, la ruta usa express.raw().
 app.use((req, res, next) => {
-  // Usa startsWith por si algún día agregas querystring a la ruta
   if (req.originalUrl.startsWith("/api/stripe/webhook")) {
-    // no aplicar express.json en esta ruta
-    return next();
+    return next(); // no aplicar express.json en esta ruta
   }
-  // para el resto, aplica JSON
   return express.json()(req, res, next);
 });
 
 // ─────────────────────────────────────────────────────────────
 // Rutas API
-// Stripe primero o después funciona igual porque el parser ya es condicional
 app.use("/api/stripe", stripeRoutes);
 
 app.use("/api/auth", authRoutes);
