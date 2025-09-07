@@ -7,7 +7,7 @@ import passport from "passport";
 import dotenv from "dotenv";
 dotenv.config();
 
-import "./config/passport.js"; // Estrategia Google
+import "./config/passport.js";
 import { initPassport } from "./config/passport.js";
 
 // Rutas
@@ -29,7 +29,6 @@ import communityViewRoutes from "./routes/communityView.routes.js";
 import businessViewRoutes from "./routes/businessView.routes.js";
 import eventViewRoutes from "./routes/eventView.routes.js";
 
-// 🚀 Nuevas rutas de Mensajería
 import conversationRoutes from "./routes/conversation.routes.js";
 import messageRoutes from "./routes/message.routes.js";
 import commentRoutes from "./routes/comments.routes.js";
@@ -46,46 +45,13 @@ app.use(morgan("dev"));
 app.use(cookieParser());
 
 /* ─────────────────────────────────────────────────────────────
-   CORS
-   (anterior) ❌ Solo web con cookies
-   ----------------------------------------------------------------
-   app.use(
-     cors({
-       origin: "http://localhost:5173",
-       credentials: true,
-     })
-   );
-
-   (anterior allowlist web) ❌ cookies
-   ----------------------------------------------------------------
-   const allowedOriginsWeb = [
-     "http://localhost:5173",
-     "https://communidades.com",
-     "https://www.communidades.com",
-     "https://dev.communidades.com",
-   ];
-   app.use(
-     cors({
-       origin(origin, cb) {
-         if (!origin || allowedOriginsWeb.includes(origin)) cb(null, true);
-         else cb(new Error("Not allowed by CORS: " + origin));
-       },
-       credentials: true,
-     })
-   );
+   CORS para MOBILE (Bearer en Authorization, sin cookies)
    ───────────────────────────────────────────────────────────── */
-
-/* 🆕 CORS para MOBILE (Bearer en Authorization, sin cookies)
-   - Permite WebView de Capacitor: https://localhost (androidScheme "https")
-   - Permite capacitor://localhost
-   - Permite LAN http://192.168.x.x … (útil para pruebas)
-   - Mantengo dominios de producción por si alguna vista los necesita (sin cookies)
-*/
 const allowedOrigins = new Set([
-  "https://localhost", // WebView con androidScheme "https"
+  "https://localhost", // WebView Capacitor (androidScheme "https")
   "http://localhost", // por si cambias a http
-  "capacitor://localhost", // esquema de Capacitor
-  // "http://localhost:5173",       // <- descomenta solo si vas a pegarle desde tu web local a este backend
+  "capacitor://localhost", // esquema Capacitor (iOS/Android)
+  // "http://localhost:5173",   // ← descomenta si querés usar este backend desde tu web local
   "https://communidades.com",
   "https://www.communidades.com",
   "https://dev.communidades.com",
@@ -105,7 +71,7 @@ function isLanOrigin(origin) {
   }
 }
 
-// (opcional) Log para saber qué Origin llega
+// Log para ver qué Origin llega (útil en Render)
 app.use((req, _res, next) => {
   if (req.headers.origin) console.log("CORS origin:", req.headers.origin);
   next();
@@ -113,14 +79,18 @@ app.use((req, _res, next) => {
 
 const corsOptionsDelegate = (req, cb) => {
   const origin = req.header("Origin");
+  const reqHeaders = req.header("Access-Control-Request-Headers"); // p.ej. "accept, content-type, authorization"
+
   if (!origin || allowedOrigins.has(origin) || isLanOrigin(origin)) {
     cb(null, {
       origin: true, // refleja el origin permitido
       credentials: false, // MOBILE: sin cookies
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-      exposedHeaders: ["Set-Cookie"],
-      optionsSuccessStatus: 204, // evita 500 en preflight
+      allowedHeaders:
+        reqHeaders || "Content-Type, Authorization, X-Requested-With",
+      exposedHeaders: "Authorization, Set-Cookie",
+      optionsSuccessStatus: 204,
+      maxAge: 600, // cachea el preflight ~10min
     });
   } else {
     cb(new Error("Not allowed by CORS: " + origin));
@@ -129,16 +99,16 @@ const corsOptionsDelegate = (req, cb) => {
 
 app.use(cors(corsOptionsDelegate));
 // Asegurar que todos los preflight OPTIONS respondan OK
-app.options("*", cors(corsOptionsDelegate));
-
-// Passport
+app.options(/.*/, cors(corsOptionsDelegate));
+/* ─────────────────────────────────────────────────────────────
+   Passport
+   ───────────────────────────────────────────────────────────── */
 initPassport();
 app.use(passport.initialize());
 
-// ─────────────────────────────────────────────────────────────
-// Body parser condicional para Stripe Webhook
-// IMPORTANTE: el webhook necesita body RAW. Evitamos aplicar express.json()
-// a esa ruta exacta. Luego, dentro de stripe.routes.js, la ruta usa express.raw().
+/* ─────────────────────────────────────────────────────────────
+   Body parser condicional para Stripe Webhook (RAW en webhook)
+   ───────────────────────────────────────────────────────────── */
 app.use((req, res, next) => {
   if (req.originalUrl.startsWith("/api/stripe/webhook")) {
     return next(); // no aplicar express.json en esta ruta
@@ -146,8 +116,9 @@ app.use((req, res, next) => {
   return express.json()(req, res, next);
 });
 
-// ─────────────────────────────────────────────────────────────
-// Rutas API
+/* ─────────────────────────────────────────────────────────────
+   Rutas API
+   ───────────────────────────────────────────────────────────── */
 app.use("/api/stripe", stripeRoutes);
 
 app.use("/api/auth", authRoutes);
@@ -182,13 +153,16 @@ app.use("/api/user-promos", userPromoRoutes);
 // Ads / Banners
 app.use("/api", adBannerRoutes);
 
-// ─────────────────────────────────────────────────────────────
-// Salud opcional
+/* ─────────────────────────────────────────────────────────────
+   Salud
+   ───────────────────────────────────────────────────────────── */
 app.get("/api/health", (_req, res) =>
   res.json({ ok: true, env: process.env.NODE_ENV || "dev" })
 );
 
-// 404 opcional
+/* ─────────────────────────────────────────────────────────────
+   404
+   ───────────────────────────────────────────────────────────── */
 app.use((req, res) => {
   res.status(404).json({ msg: "Not Found" });
 });
