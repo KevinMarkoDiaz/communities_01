@@ -289,8 +289,7 @@ export const getAllBusinesses = async (req, res) => {
     if (lat && lng) {
       const parsedLat = parseFloat(lat);
       const parsedLng = parseFloat(lng);
-      const radiusInMiles = 80;
-      const earthRadiusInMiles = 3963.2;
+      const radiusInMiles = 500; // ← antes 80      const earthRadiusInMiles = 3963.2;
       const radiusInRadians = radiusInMiles / earthRadiusInMiles;
       match["location.coordinates"] = {
         $geoWithin: {
@@ -915,7 +914,7 @@ export const getBusinessesByCommunity = async (req, res) => {
 
     const parsedLat = parseFloat(lat);
     const parsedLng = parseFloat(lng);
-    const radiusInMiles = 80;
+    const radiusInMiles = 500;
     const earthRadiusInMiles = 3963.2;
     const radiusInRadians = radiusInMiles / earthRadiusInMiles;
 
@@ -957,7 +956,7 @@ export const getBusinessesForMapByCommunity = async (req, res) => {
       return res.status(400).json({ msg: "Coordenadas inválidas." });
     }
 
-    const radiusInMiles = 80;
+    const radiusInMiles = 500; // ← antes 80
     const earthRadiusInMiles = 3963.2;
     const radiusInRadians = radiusInMiles / earthRadiusInMiles;
 
