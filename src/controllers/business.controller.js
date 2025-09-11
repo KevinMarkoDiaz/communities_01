@@ -289,7 +289,8 @@ export const getAllBusinesses = async (req, res) => {
     if (lat && lng) {
       const parsedLat = parseFloat(lat);
       const parsedLng = parseFloat(lng);
-      const radiusInMiles = 500; // ← antes 80      const earthRadiusInMiles = 3963.2;
+      const radiusInMiles = 500; // ← antes 80
+      const earthRadiusInMiles = 3963.2;
       const radiusInRadians = radiusInMiles / earthRadiusInMiles;
       match["location.coordinates"] = {
         $geoWithin: {
