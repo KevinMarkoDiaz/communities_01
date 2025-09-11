@@ -83,7 +83,7 @@ export const getAllCommunities = async (req, res) => {
     let totalCount;
 
     if (lat && lng) {
-      const radiusInMiles = 80;
+      const radiusInMiles = 500;
       const radiusInRadians = radiusInMiles / 3963.2;
 
       query = {
