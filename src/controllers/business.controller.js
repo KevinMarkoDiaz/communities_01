@@ -6,9 +6,12 @@ import businessView from "../models/businessView.model.js";
 import Follow from "../models/follow.model.js";
 import User from "../models/user.model.js";
 import { v2 as cloudinary } from "cloudinary";
+import slugify from "slugify"; // ✅ NUEVO
+import mongoose from "mongoose"; // si no estaba importado
 
 import { geocodeAddress } from "../utils/geocode.js";
 import { geocodeZipCentroid } from "../utils/geocodeZip.js";
+
 // 🎛️ Config de orden aleatorio
 const PREMIUM_BOOST = Number(process.env.PREMIUM_BOOST ?? 0.08);
 const DEFAULT_ORDER = (
@@ -16,6 +19,28 @@ const DEFAULT_ORDER = (
 ).toLowerCase();
 const MAX_PREMIUM_PER_PAGE = Number(process.env.BIZ_MAX_PREMIUM_PER_PAGE ?? 2);
 
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+async function generateUniqueBizSlug(name, excludeId = null) {
+  const base = slugify(name, { lower: true, strict: true });
+  let slug = base;
+  let i = 1;
+  // evita colisión con otro _id distinto
+  // si excludeId viene, lo excluimos del find
+  const cond = (s) =>
+    excludeId ? { slug: s, _id: { $ne: excludeId } } : { slug: s };
+  while (await Business.findOne(cond(slug)).select("_id")) {
+    slug = `${base}-${i++}`;
+  }
+  return slug;
+}
+
+async function findBizByIdOrSlug(idOrSlug) {
+  if (idOrSlug && isValidObjectId(idOrSlug)) {
+    const byId = await Business.findById(idOrSlug);
+    if (byId) return byId;
+  }
+  return Business.findOne({ slug: idOrSlug });
+}
 /* ───────── Cloudinary helpers ───────── */
 function isCloudinaryUrl(url = "") {
   try {
@@ -222,9 +247,10 @@ export const createBusiness = async (req, res) => {
 
     // Propietario = usuario autenticado
     const user = await User.findById(req.user.id);
-
+    const slug = await generateUniqueBizSlug(name);
     const newBusiness = new Business({
       name,
+      slug, // ✅ NUEVO
       description,
       categories,
       community,
@@ -454,19 +480,6 @@ export const getBusinessById = async (req, res) => {
 /* ───────── Update (galería mixta con límite 5) ───────── */
 export const updateBusiness = async (req, res) => {
   try {
-    // Logs de entrada
-    console.log("🧩 BODY KEYS:", Object.keys(req.body || {}));
-    console.log("🧩 FILES KEYS:", Object.keys(req.files || {}));
-    console.log(
-      "🧪 imageProcessor.body.featuredImage:",
-      req.body?.featuredImage
-    );
-    console.log("🧪 imageProcessor.body.profileImage:", req.body?.profileImage);
-    console.log(
-      "🧪 imageProcessor.body.images count:",
-      Array.isArray(req.body?.images) ? req.body.images.length : 0
-    );
-
     let {
       name,
       description,
@@ -500,11 +513,15 @@ export const updateBusiness = async (req, res) => {
       req.body,
       "existingImages"
     );
-    // Log clave: ¿vino existingImages del front?
-    console.log("raw existingImages body:", req.body.existingImages);
-    console.log("existingProvided:", existingProvided);
 
-    const business = await Business.findById(req.params.id);
+    const idOrSlug = req.params.idOrSlug || req.params.id;
+    let business = null;
+    if (idOrSlug && isValidObjectId(idOrSlug)) {
+      business = await Business.findById(idOrSlug);
+    }
+    if (!business) {
+      business = await Business.findOne({ slug: idOrSlug });
+    }
     if (!business)
       return res.status(404).json({ msg: "Negocio no encontrado." });
 
@@ -653,19 +670,15 @@ export const updateBusiness = async (req, res) => {
     const overflowNew = newUrls.slice(slots);
     const nextGallery = [...keep, ...acceptedNew];
 
-    // Logs de galería (antes de asignar)
-    console.log("prevGallery:", prevGallery.length, prevGallery);
-    console.log("keepInput (existingImages):", keep.length, keep);
-    console.log("newUrls (subidas):", newUrls.length, newUrls);
-    console.log("nextGallery:", nextGallery.length, nextGallery);
-    console.log(
-      "overflowNew (no entran por tope):",
-      overflowNew.length,
-      overflowNew
-    );
-
     // Asignación y guardado
-    if (name !== undefined) business.name = name;
+    if (name !== undefined && name !== business.name) {
+      // evita duplicados de nombre si quieres (opcional)
+      // const exists = await Business.findOne({ name, _id: { $ne: business._id } }).select("_id");
+      // if (exists) return res.status(400).json({ msg: "Ya existe un negocio con ese nombre." });
+
+      business.name = name;
+      business.slug = await generateUniqueBizSlug(name, business._id);
+    }
     if (description !== undefined) business.description = description;
     if (categories && categories.length) business.categories = categories;
     if (community !== undefined) business.community = community;
@@ -698,7 +711,6 @@ export const updateBusiness = async (req, res) => {
       isCloudinaryUrl(prevFeatured)
     ) {
       const pid = getCloudinaryPublicId(prevFeatured);
-      console.log("🧹 Borrar featured anterior:", pid);
       if (pid) {
         cloudinary.uploader
           .destroy(pid)
@@ -720,7 +732,6 @@ export const updateBusiness = async (req, res) => {
       isCloudinaryUrl(prevProfile)
     ) {
       const pid = getCloudinaryPublicId(prevProfile);
-      console.log("🧹 Borrar profile anterior:", pid);
       if (pid) {
         cloudinary.uploader
           .destroy(pid)
@@ -741,9 +752,6 @@ export const updateBusiness = async (req, res) => {
       .map(getCloudinaryPublicId)
       .filter(Boolean);
 
-    console.log("removedOld:", removedOld.length, removedOld);
-    console.log("removedOldPids:", removedOldPids);
-
     if (removedOldPids.length) {
       cloudinary.api
         .delete_resources(removedOldPids)
@@ -760,13 +768,10 @@ export const updateBusiness = async (req, res) => {
       Array.isArray(uploadedPublicIds.gallery) &&
       uploadedPublicIds.gallery.length
     ) {
-      console.log("uploadedPublicIds.gallery:", uploadedPublicIds.gallery);
       const overflowPids = uploadedPublicIds.gallery
         .filter((item) => overflowNew.includes(item.url))
         .map((item) => item.public_id)
         .filter(Boolean);
-
-      console.log("overflowPids:", overflowPids);
 
       if (overflowPids.length) {
         cloudinary.api
@@ -796,7 +801,8 @@ export const updateBusiness = async (req, res) => {
 /* ───────── Delete ───────── */
 export const deleteBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id);
+    const idOrSlug = req.params.idOrSlug || req.params.id;
+    const business = await findBizByIdOrSlug(idOrSlug);
     if (!business)
       return res.status(404).json({ msg: "Negocio no encontrado." });
 
@@ -858,7 +864,11 @@ export const getMyBusinesses = async (req, res) => {
 /* ───────── Promotions by Business ───────── */
 export const getPromotionsByBusiness = async (req, res) => {
   try {
-    const negocio = await Business.findById(req.params.id)
+    const idOrSlug = req.params.idOrSlug || req.params.id;
+    const biz = await findBizByIdOrSlug(idOrSlug);
+    if (!biz) return res.status(404).json({ msg: "Negocio no encontrado" });
+
+    const negocio = await Business.findById(biz._id)
       .populate({
         path: "promotions",
         populate: [
@@ -880,9 +890,10 @@ export const getPromotionsByBusiness = async (req, res) => {
 /* ───────── Toggle Like ───────── */
 export const toggleLikeBusiness = async (req, res) => {
   try {
-    const business = await Business.findById(req.params.id);
+    const idOrSlug = req.params.idOrSlug || req.params.id;
+    const business = await findBizByIdOrSlug(idOrSlug);
     if (!business)
-      return res.status(404).json({ error: "Negocio no encontrado" });
+      return res.status(404).json({ msg: "Negocio no encontrado." });
 
     const userId = req.user._id.toString();
     const index = business.likes.findIndex((id) => id.toString() === userId);
@@ -930,7 +941,7 @@ export const getBusinessesByCommunity = async (req, res) => {
 
     const businesses = await Business.find(query)
       .select(
-        "_id name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
+        "_id slug name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
       )
       .populate({ path: "categories", select: "name" });
 
@@ -972,7 +983,7 @@ export const getBusinessesForMapByCommunity = async (req, res) => {
 
     const businesses = await Business.find(query)
       .select(
-        "_id name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
+        "_id slug name profileImage openingHours location.coordinates categories isPremium isDeliveryOnly locationPrecision primaryZip"
       )
       .populate({ path: "categories", select: "name" });
 
@@ -982,5 +993,32 @@ export const getBusinessesForMapByCommunity = async (req, res) => {
     res
       .status(500)
       .json({ msg: "Error al obtener negocios por comunidad para el mapa." });
+  }
+};
+
+export const getBusinessByIdOrSlug = async (req, res) => {
+  try {
+    const idOrSlug = req.params.idOrSlug || req.params.id;
+    const query = isValidObjectId(idOrSlug)
+      ? { _id: idOrSlug }
+      : { slug: idOrSlug };
+
+    const business = await Business.findOne(query).populate(
+      "categories  community owner"
+    );
+    if (!business)
+      return res.status(404).json({ msg: "Negocio no encontrado." });
+
+    await businessView.create({
+      business: business._id,
+      viewer: req.user ? req.user._id : null,
+      isAnonymous: !req.user,
+      viewedAt: new Date(),
+    });
+
+    res.status(200).json({ business });
+  } catch (error) {
+    console.error("❌ Error en getBusinessByIdOrSlug:", error);
+    res.status(500).json({ msg: "Error al obtener el negocio." });
   }
 };

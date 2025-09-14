@@ -3,17 +3,17 @@ import { Router } from "express";
 import {
   createBusiness,
   getAllBusinesses,
-  getBusinessById,
+  getBusinessByIdOrSlug, // ✅ NUEVO nombre
   updateBusiness,
   deleteBusiness,
   getMyBusinesses,
   getPromotionsByBusiness,
   toggleLikeBusiness,
   getBusinessesByCommunity,
-  getBusinessesForMapByCommunity, // ✅ Ruta final usada para el mapa
+  getBusinessesForMapByCommunity,
 } from "../controllers/business.controller.js";
 
-import Business from "../models/business.model.js"; // ✅ NECESARIO para /search
+import Business from "../models/business.model.js";
 
 import { authMiddleware } from "../middlewares/validateToken.js";
 import { hasRole } from "../middlewares/hasRole.js";
@@ -30,21 +30,17 @@ import nocache from "../middlewares/nocache.js";
 
 const router = Router();
 
-// Helper pre-parser (igual lógica que en PUT) para usar antes de validateBody
 const preparseForValidation = (req, res, next) => {
   try {
     const parseIfString = (field) => {
       if (typeof req.body[field] === "string") {
         try {
           req.body[field] = JSON.parse(req.body[field]);
-        } catch (err) {
-          console.warn(`⚠️ No se pudo parsear ${field}:`, err.message);
-          // Mantén el campo como string o pásalo a undefined si prefieres
-          // req.body[field] = undefined;
+        } catch {
+          /* noop */
         }
       }
     };
-
     [
       "categories",
       "location",
@@ -52,20 +48,12 @@ const preparseForValidation = (req, res, next) => {
       "openingHours",
       "tags",
       "serviceAreaZips",
-      "existingImages", // 👈 parsea, PERO NO LO MUEVAS
+      "existingImages",
     ].forEach(parseIfString);
-
-    if (typeof req.body.isVerified === "string") {
+    if (typeof req.body.isVerified === "string")
       req.body.isVerified = req.body.isVerified === "true";
-    }
-    if (typeof req.body.isDeliveryOnly === "string") {
+    if (typeof req.body.isDeliveryOnly === "string")
       req.body.isDeliveryOnly = req.body.isDeliveryOnly === "true";
-    }
-
-    // ❌ ELIMINADO:
-    // if (req.body.existingImages && !req.body.images) { ... }
-    // NO promover existingImages a images
-
     next();
   } catch (e) {
     console.error("🛑 Error al preparsear campos:", e);
@@ -73,14 +61,14 @@ const preparseForValidation = (req, res, next) => {
   }
 };
 
-// ✅ Rutas específicas primero
+// Geo/map primero
 router.get("/map/:communityId", nocache, getBusinessesForMapByCommunity);
 router.get("/community/:communityId", getBusinessesByCommunity);
 
-// Obtener todos los negocios (con paginación)
+// Listado
 router.get("/", getAllBusinesses);
 
-// Crear negocio
+// Crear
 router.post(
   "/",
   authMiddleware,
@@ -88,67 +76,43 @@ router.post(
   uploaderMiddleware,
   imageProcessor,
   parseDataField,
-  preparseForValidation, // ✅ normaliza antes de validar
-  validateBody(businessSchema), // ✅ valida POST
+  preparseForValidation,
+  validateBody(businessSchema),
   createBusiness
 );
 
-// Obtener negocios propios
+// Míos
 router.get("/mine", authMiddleware, getMyBusinesses);
 
-// Obtener promociones de un negocio
-router.get("/:id/promotions", getPromotionsByBusiness);
+// Promos por negocio (id o slug)
+router.get("/:idOrSlug/promotions", getPromotionsByBusiness);
 
-// Buscar negocios (autenticado)
-router.get("/search", authMiddleware, async (req, res) => {
-  const q = req.query.q;
+// Detalle por id o slug
+router.get("/:idOrSlug", getBusinessByIdOrSlug);
 
-  if (!q || q.length < 2) {
-    return res
-      .status(400)
-      .json({ msg: "Se requiere una búsqueda de al menos 2 caracteres" });
-  }
-
-  try {
-    const resultados = await Business.find({
-      name: { $regex: q, $options: "i" },
-    })
-      .limit(10)
-      .select("name _id");
-
-    res.status(200).json(resultados);
-  } catch (error) {
-    console.error("Error en búsqueda de negocios:", error);
-    res.status(500).json({ msg: "Error al buscar negocios" });
-  }
-});
-
-// Obtener negocio por ID
-router.get("/:id", getBusinessById);
-
-// Actualizar negocio
+// Actualizar por id o slug
 router.put(
-  "/:id",
+  "/:idOrSlug",
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploaderMiddleware,
-  debugMultipart, // ← opcional, solo para depurar
-  parseDataField, // ← igual que POST
-  imageProcessor, // ← sube y deja URLs en body
+  debugMultipart,
+  parseDataField,
+  imageProcessor,
   preparseForValidation,
   validateBody(updateBusinessSchema),
   updateBusiness
 );
 
-// Eliminar negocio
+// Eliminar por id o slug
 router.delete(
-  "/:id",
+  "/:idOrSlug",
   authMiddleware,
   hasRole("admin", "business_owner"),
   deleteBusiness
 );
 
-// Like negocio
-router.put("/:id/like", authMiddleware, toggleLikeBusiness);
+// Like por id o slug
+router.put("/:idOrSlug/like", authMiddleware, toggleLikeBusiness);
 
 export default router;

@@ -46,7 +46,7 @@ const contactSchema = new mongoose.Schema({
 });
 
 const locationSchema = new mongoose.Schema({
-  address: { type: String }, // ⚠️ ya no required aquí; validamos en el controlador
+  address: { type: String },
   city: { type: String },
   state: { type: String },
   zipCode: { type: String, default: "" },
@@ -69,6 +69,7 @@ const locationSchema = new mongoose.Schema({
 const businessSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    slug: { type: String, unique: true, sparse: true }, // ✅ NUEVO (no requerido)
     description: { type: String, required: true },
 
     categories: [
@@ -80,10 +81,9 @@ const businessSchema = new mongoose.Schema(
       required: true,
     },
 
-    // NUEVO
     isDeliveryOnly: { type: Boolean, default: false },
-    primaryZip: { type: String, default: "" }, // ZIP principal para el pin del mapa
-    serviceAreaZips: [{ type: String }], // opcional, solo informativo
+    primaryZip: { type: String, default: "" },
+    serviceAreaZips: [{ type: String }],
     locationPrecision: {
       type: String,
       enum: ["address", "zipcode"],
@@ -91,7 +91,7 @@ const businessSchema = new mongoose.Schema(
     },
 
     contact: contactSchema,
-    location: locationSchema, // si isDeliveryOnly === true, podemos guardar el centroid aquí
+    location: locationSchema,
 
     owner: {
       type: mongoose.Schema.Types.ObjectId,
