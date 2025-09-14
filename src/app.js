@@ -24,6 +24,8 @@ import notificationRoutes from "./routes/notification.routes.js";
 import followRoutes from "./routes/follow.routes.js";
 import ratingRoutes from "./routes/ratings.routes.js";
 
+import sitemapRoutes from "./routes/sitemap.routes.js";
+
 import communityViewRoutes from "./routes/communityView.routes.js";
 import businessViewRoutes from "./routes/businessView.routes.js";
 import eventViewRoutes from "./routes/eventView.routes.js";
@@ -36,6 +38,7 @@ import commentRoutes from "./routes/comments.routes.js";
 import userPromoRoutes from "./routes/userPromo.routes.js";
 import adBannerRoutes from "./routes/adBanner.routes.js";
 import { initPassport } from "./config/passport.js";
+import { prerenderMiddleware } from "./middlewares/prerender.js";
 
 const app = express();
 
@@ -88,7 +91,7 @@ app.use((req, res, next) => {
   // para el resto, aplica JSON
   return express.json()(req, res, next);
 });
-
+app.use(prerenderMiddleware);
 // ─────────────────────────────────────────────────────────────
 // Rutas API
 // Stripe primero o después funciona igual porque el parser ya es condicional
@@ -131,6 +134,8 @@ app.use("/api", adBannerRoutes);
 app.get("/api/health", (_req, res) =>
   res.json({ ok: true, env: process.env.NODE_ENV || "dev" })
 );
+
+app.use("/", sitemapRoutes);
 
 // 404 opcional
 app.use((req, res) => {
