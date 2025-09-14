@@ -1,14 +1,21 @@
 // models/Community.js
-
 import mongoose from "mongoose";
+import { generateUniqueSlug } from "../utils/uniqueSlug.js";
 
 const communitySchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, unique: true },
-    slug: { type: String, unique: true },
+    name: { type: String, required: true, unique: true, trim: true },
+    slug: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      index: true,
+    },
 
-    flagImage: { type: String },
-    bannerImage: { type: String },
+    flagImage: String,
+    bannerImage: String,
 
     description: { type: String, maxlength: 1000 },
     language: { type: String, default: "es" },
@@ -26,9 +33,9 @@ const communitySchema = new mongoose.Schema(
     memberCount: { type: Number, default: 0 },
     businessCount: { type: Number, default: 0 },
     eventCount: { type: Number, default: 0 },
-    mostPopularCategory: { type: String },
+    mostPopularCategory: String,
 
-    populationEstimate: { type: Number },
+    populationEstimate: Number,
     originCountryInfo: {
       name: String,
       flag: String,
@@ -47,13 +54,7 @@ const communitySchema = new mongoose.Schema(
       { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
     ],
     featuredEvents: [{ type: mongoose.Schema.Types.ObjectId, ref: "Event" }],
-    testimonials: [
-      {
-        name: String,
-        message: String,
-        avatar: String,
-      },
-    ],
+    testimonials: [{ name: String, message: String, avatar: String }],
     moderators: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
     // 📎 Recursos
@@ -74,7 +75,7 @@ const communitySchema = new mongoose.Schema(
       youtube: String,
     },
 
-    // ✅ NUEVO: Enlaces externos relevantes
+    // ✅ Enlaces externos relevantes
     externalLinks: [
       {
         title: String,
@@ -115,6 +116,21 @@ const communitySchema = new mongoose.Schema(
 );
 
 communitySchema.index({ mapCenter: "2dsphere" });
+
+// 🔒 Hook: crea/normaliza slug y lo regenera si cambia el name
+communitySchema.pre("validate", async function () {
+  if (!this.name) return;
+
+  // normaliza slug si viene seteado manualmente
+  if (this.slug) {
+    this.slug = this.slug.toString().trim().toLowerCase();
+  }
+
+  // genera si falta o si cambió el nombre
+  if (!this.slug || this.isModified("name")) {
+    this.slug = await generateUniqueSlug(this.name, this._id);
+  }
+});
 
 const Community = mongoose.model("Community", communitySchema);
 export default Community;

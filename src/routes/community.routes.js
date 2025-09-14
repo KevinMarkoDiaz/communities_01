@@ -5,11 +5,10 @@ import { Router } from "express";
 import {
   createCommunity,
   getAllCommunities,
-  getCommunityById,
-  updateCommunity,
-  deleteCommunity,
+  getCommunity, // genérico: resuelve por id o slug
+  updateCommunity, // ya soporta idOrSlug internamente
+  deleteCommunity, // espera req.params.id (ObjectId) → mapeamos antes
   getMyCommunities,
-  getCommunityBySlug,
 } from "../controllers/community.controller.js";
 import { getPromotionsByCommunity } from "../controllers/promotion.controller.js";
 
@@ -31,61 +30,104 @@ import {
   communityUpdateSchema,
 } from "../schemas/community.schema.js";
 
+// Modelo (para resolver slug → _id y redirects)
+import Community from "../models/community.model.js";
+
 const router = Router();
+const isObjectId = (v) => /^[a-fA-F0-9]{24}$/.test(v);
 
 /* ────────────────────────────────────────────────────────────
-   Rutas
+   Crear comunidad (solo admin o business_owner)
+   multipart/form-data: imágenes + JSON en "data"
    ──────────────────────────────────────────────────────────── */
-
-/**
- * Crear comunidad (solo admin o business_owner)
- * - multipart/form-data: imágenes + JSON en "data"
- * - Sube imágenes y coloca URLs en req.body.* antes de validar/crear
- */
 router.post(
   "/communities",
   authMiddleware,
   hasRole("admin", "business_owner"),
-  uploadCommunityImages, // captura archivos
-  parseCommunityData, // parsea data -> req.body
-  processCommunityImages, // sube e inyecta URLs a req.body
+  uploadCommunityImages,
+  parseCommunityData,
+  processCommunityImages,
   validateBody(communitySchema),
   createCommunity
 );
 
-/**
- * Listar comunidades (público) con paginación y filtro geográfico opcional
- * ?lat=&lng=&page=&limit=
- */
+/* ────────────────────────────────────────────────────────────
+   Listar comunidades (público)
+   ?lat=&lng=&page=&limit=
+   ──────────────────────────────────────────────────────────── */
 router.get("/communities", getAllCommunities);
 
-/**
- * Mis comunidades (según rol)
- */
+/* ────────────────────────────────────────────────────────────
+   Mis comunidades (según rol)
+   ──────────────────────────────────────────────────────────── */
 router.get("/communities/mine", authMiddleware, getMyCommunities);
 
-/**
- * Promociones por comunidad (público)
- */
-router.get("/community/:id/promotions", getPromotionsByCommunity);
+/* ────────────────────────────────────────────────────────────
+   LEGACY: alias slug explícito → redirect 301 a slug plano
+   (mantén compatibilidad con enlaces viejos)
+   ──────────────────────────────────────────────────────────── */
+router.get("/communities/slug/:slug", (req, res) => {
+  return res.redirect(301, `/api/communities/${req.params.slug}`);
+});
 
-/**
- * Obtener comunidad por slug (público)
- */
-router.get("/communities/slug/:slug", getCommunityBySlug);
+/* ────────────────────────────────────────────────────────────
+   Obtener comunidad por :idOrSlug (público)
+   - Si viene un ObjectId y existe slug, redirige 301 al slug
+   - Si no, despacha al controlador genérico getCommunity
+   ──────────────────────────────────────────────────────────── */
+router.get(
+  "/communities/:idOrSlug",
+  async (req, res, next) => {
+    const { idOrSlug } = req.params;
+    if (isObjectId(idOrSlug)) {
+      try {
+        const doc = await Community.findById(idOrSlug).select("slug");
+        if (doc?.slug) {
+          return res.redirect(301, `/api/communities/${doc.slug}`);
+        }
+      } catch (_) {
+        // continúa al controlador genérico si hay error/busca vacío
+      }
+    }
+    return next();
+  },
+  getCommunity
+);
 
-/**
- * Obtener comunidad por ID (público)
- */
-router.get("/communities/:id", getCommunityById);
+/* ────────────────────────────────────────────────────────────
+   Promociones por comunidad (público)
+   - Acepta id o slug
+   - Mapea a req.params.id (ObjectId) para el controlador existente
+   ──────────────────────────────────────────────────────────── */
+router.get(
+  "/community/:idOrSlug/promotions",
+  async (req, _res, next) => {
+    const { idOrSlug } = req.params;
 
-/**
- * Actualizar comunidad (solo owner o admin)
- * - Acepta multipart/form-data o JSON
- * - Sube nuevas imágenes y actualiza URLs en req.body antes de validar
- */
+    if (isObjectId(idOrSlug)) {
+      req.params.id = idOrSlug;
+      return next();
+    }
+
+    const c = await Community.findOne({ slug: idOrSlug }).select("_id");
+    if (!c?._id) {
+      // deja que el controlador maneje el not found de forma estándar
+      req.params.id = "000000000000000000000000"; // fuerza not found
+      return next();
+    }
+    req.params.id = c._id.toString();
+    return next();
+  },
+  getPromotionsByCommunity
+);
+
+/* ────────────────────────────────────────────────────────────
+   Actualizar comunidad (solo owner o admin) por :idOrSlug
+   - Acepta multipart/form-data o JSON
+   - updateCommunity YA soporta idOrSlug internamente
+   ──────────────────────────────────────────────────────────── */
 router.put(
-  "/communities/:id",
+  "/communities/:idOrSlug",
   authMiddleware,
   hasRole("admin", "business_owner"),
   uploadCommunityImages,
@@ -95,13 +137,32 @@ router.put(
   updateCommunity
 );
 
-/**
- * Eliminar comunidad (solo owner o admin)
- */
+/* ────────────────────────────────────────────────────────────
+   Eliminar comunidad (solo owner o admin) por :idOrSlug
+   - deleteCommunity espera req.params.id (ObjectId)
+   - Mapeamos slug → _id antes de llamar al controlador
+   ──────────────────────────────────────────────────────────── */
 router.delete(
-  "/communities/:id",
+  "/communities/:idOrSlug",
   authMiddleware,
   hasRole("admin", "business_owner"),
+  async (req, res, next) => {
+    const { idOrSlug } = req.params;
+    if (isObjectId(idOrSlug)) {
+      req.params.id = idOrSlug;
+      return next();
+    }
+    try {
+      const c = await Community.findOne({ slug: idOrSlug }).select("_id");
+      if (!c?._id) {
+        return res.status(404).json({ msg: "Comunidad no encontrada." });
+      }
+      req.params.id = c._id.toString();
+      return next();
+    } catch (e) {
+      return res.status(500).json({ msg: "Error al resolver la comunidad." });
+    }
+  },
   deleteCommunity
 );
 

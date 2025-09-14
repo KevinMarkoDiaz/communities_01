@@ -6,6 +6,7 @@ import Follow from "../models/follow.model.js";
 import Rating from "../models/rating.model.js";
 import Comment from "../models/comment.model.js";
 import Notification from "../models/Notification.model.js";
+import { generateUniqueSlug } from "../utils/uniqueSlug.js";
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -178,41 +179,54 @@ export const getCommunityBySlug = async (req, res) => {
  */
 export const updateCommunity = async (req, res) => {
   try {
-    const data = req.body.data ? JSON.parse(req.body.data) : req.body;
-    const { name } = data;
+    // Body puede venir ya parseado por middlewares; si viene como string en "data", parseamos
+    const dataRaw = req.body?.data ? req.body.data : req.body;
+    const data = typeof dataRaw === "string" ? JSON.parse(dataRaw) : dataRaw;
 
+    // No permitimos que el cliente setee slug manualmente
+    if ("slug" in data) delete data.slug;
+
+    // Soporta rutas con :id o :idOrSlug
+    const idOrSlug = req.params.idOrSlug ?? req.params.id;
+
+    // Busca por ObjectId o por slug
     let community = null;
-
-    if (isValidObjectId(req.params.id)) {
-      community = await Community.findById(req.params.id);
-    } else {
-      community = await Community.findOne({ slug: req.params.id });
+    if (idOrSlug && isValidObjectId(idOrSlug)) {
+      community = await Community.findById(idOrSlug);
+    }
+    if (!community) {
+      community = await Community.findOne({ slug: idOrSlug });
     }
 
     if (!community) {
       return res.status(404).json({ msg: "Comunidad no encontrada." });
     }
 
-    const isOwner = community.owner.toString() === req.user.id;
-    const isAdmin = req.user.role === "admin";
-
+    // Autorización: owner o admin
+    const isOwner = community.owner?.toString?.() === req.user?.id;
+    const isAdmin = req.user?.role === "admin";
     if (!isOwner && !isAdmin) {
       return res
         .status(403)
         .json({ msg: "No tienes permisos para editar esta comunidad." });
     }
 
-    if (name && name !== community.name) {
-      const exists = await Community.findOne({ name });
+    // Si cambia el nombre: valida duplicado y regenera slug único
+    if (data.name && data.name !== community.name) {
+      const exists = await Community.findOne({
+        name: data.name,
+        _id: { $ne: community._id },
+      }).select("_id");
       if (exists) {
         return res
           .status(400)
           .json({ msg: "Ya existe una comunidad con ese nombre." });
       }
-      community.name = name;
-      community.slug = slugify(name, { lower: true, strict: true });
+      community.name = data.name;
+      community.slug = await generateUniqueSlug(data.name, community._id);
     }
 
+    // Campos permitidos a actualizar
     const camposActualizables = [
       "description",
       "flagImage",
@@ -227,25 +241,33 @@ export const updateCommunity = async (req, res) => {
       "socialMediaLinks",
       "externalLinks",
       "region",
-      "mapCenter",
+      "mapCenter", // { type: "Point", coordinates: [lng, lat] }
       "metaTitle",
       "metaDescription",
       "status",
       "verified",
+      "moderators",
+      "featuredBusinesses",
+      "featuredEvents",
+      "mostPopularCategory",
+      "memberCount",
+      "businessCount",
+      "eventCount",
     ];
 
-    camposActualizables.forEach((campo) => {
+    for (const campo of camposActualizables) {
       if (data[campo] !== undefined) {
         community[campo] = data[campo];
       }
-    });
+    }
 
     await community.save();
 
+    // Notificaciones a seguidores (link por slug)
     const followers = await Follow.find({
       entityType: "community",
       entityId: community._id,
-    });
+    }).select("user");
 
     if (followers.length > 0) {
       const notifications = followers.map((f) => ({
@@ -254,19 +276,25 @@ export const updateCommunity = async (req, res) => {
         entityType: "community",
         entityId: community._id,
         message: `La comunidad "${community.name}" ha actualizado su información.`,
-        link: `/comunidades/${community._id}`,
+        link: `/comunidades/${community.slug}`, // ← SEO-friendly
         read: false,
       }));
-
       await Notification.insertMany(notifications);
     }
 
-    res
-      .status(200)
-      .json({ msg: "Comunidad actualizada exitosamente.", community });
+    // (Opcional) repoblar relaciones para devolver datos completos
+    const populated = await Community.findById(community._id)
+      .populate("owner", "name email role profileImage")
+      .populate("negocios", "name category location images")
+      .populate("eventos", "title startDate endDate imagenDestacada");
+
+    return res.status(200).json({
+      msg: "Comunidad actualizada exitosamente.",
+      community: populated ?? community,
+    });
   } catch (error) {
     console.error("❌ Error en updateCommunity:", error);
-    res.status(500).json({ msg: "Error al actualizar la comunidad." });
+    return res.status(500).json({ msg: "Error al actualizar la comunidad." });
   }
 };
 
@@ -363,5 +391,51 @@ export const getCommunitySummary = async (req, res) => {
     res
       .status(500)
       .json({ msg: "Error al obtener el resumen de la comunidad." });
+  }
+};
+
+/**
+ * Obtener comunidad por id o slug (genérico)
+ * Acepta rutas tipo: /communities/:idOrSlug
+ */
+export const getCommunity = async (req, res) => {
+  try {
+    const idOrSlug = req.params.idOrSlug ?? req.params.id ?? req.params.slug;
+
+    let community = null;
+    if (idOrSlug && isValidObjectId(idOrSlug)) {
+      community = await Community.findById(idOrSlug)
+        .populate("owner", "name email role profileImage")
+        .populate("negocios", "name category location images")
+        .populate("eventos", "title startDate endDate imagenDestacada");
+    }
+    if (!community) {
+      community = await Community.findOne({ slug: idOrSlug })
+        .populate("owner", "name email role profileImage")
+        .populate("negocios", "name category location images")
+        .populate("eventos", "title startDate endDate imagenDestacada");
+    }
+
+    if (!community) {
+      return res.status(404).json({ msg: "Comunidad no encontrada." });
+    }
+
+    // registra vista (mismo patrón que getCommunityById)
+    try {
+      await communityViewModel.create({
+        community: community._id,
+        viewer: req.user ? req.user._id : null,
+        isAnonymous: !req.user,
+        viewedAt: new Date(),
+      });
+    } catch (e) {
+      // no rompas la respuesta por un fallo de métricas
+      console.warn("communityViewModel error:", e?.message || e);
+    }
+
+    return res.status(200).json({ community });
+  } catch (error) {
+    console.error("❌ Error en getCommunity:", error);
+    return res.status(500).json({ msg: "Error al obtener la comunidad." });
   }
 };
