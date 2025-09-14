@@ -25,9 +25,7 @@ router.get("/sitemap.xml", async (req, res) => {
 
 // 2.2 sitemap de negocios
 router.get("/sitemaps/negocios.xml", async (req, res) => {
-  const negocios = await Business.find({ isPublished: true })
-    .select("slug updatedAt")
-    .lean();
+  const negocios = await Business.find({}).select("slug updatedAt").lean();
 
   const urls = negocios
     .map(
